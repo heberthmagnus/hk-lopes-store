@@ -10,7 +10,12 @@ export type Variation = {
 export type AdminProduct = {
   id: number;
   name: string;
-  category: string;
+  category_id: number;
+  category_name: string;
+  category_slug: string | null;
+  storefront_group: string | null;
+  subcategory_id: number | null;
+  subcategory_name: string | null;
   description: string;
   cost_price: number;
   sale_price: number;
@@ -19,14 +24,32 @@ export type AdminProduct = {
   variations: Variation[];
 };
 
+export type CategoryOption = {
+  id: number;
+  name: string;
+  slug: string;
+  storefront_group: string | null;
+};
+
+export type SubcategoryOption = {
+  id: number;
+  category_id: number;
+  name: string;
+  slug: string;
+};
+
 export type CatalogProduct = {
   id: number;
   name: string;
   description: string;
   image_url: string;
-  category: string;
+  category_name: string;
+  category_slug: string | null;
+  storefront_group: string | null;
+  subcategory_name: string | null;
   min_sale_price: number;
   max_sale_price: number;
+  is_featured: boolean;
 };
 
 export type AdminSummary = {
@@ -53,6 +76,8 @@ export type CatalogPayload = {
 
 export type AdminStorePayload = {
   products: AdminProduct[];
+  categories: CategoryOption[];
+  subcategories: SubcategoryOption[];
   summary: AdminSummary;
   salesHistory: AdminSaleHistoryItem[];
 };
@@ -60,7 +85,8 @@ export type AdminStorePayload = {
 export type ProductInput = {
   id?: number;
   name: string;
-  category: string;
+  categoryId: number;
+  subcategoryId: number | null;
   description: string;
   costPrice: number;
   salePrice: number;

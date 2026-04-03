@@ -47,10 +47,11 @@ function normalizeProductBody(body: unknown): ProductInput {
   }
 
   const name = String(record.name ?? "").trim();
-  const category = String(record.category ?? "").trim();
   const description = String(record.description ?? "").trim();
   const imageUrl = String(record.image_url ?? record.imageUrl ?? "").trim();
   const active = typeof record.active === "boolean" ? record.active : true;
+  const rawCategoryId = record.category_id ?? record.categoryId;
+  const rawSubcategoryId = record.subcategory_id ?? record.subcategoryId;
   const idValue = record.id;
   const id =
     idValue === undefined || idValue === null || idValue === ""
@@ -67,6 +68,11 @@ function normalizeProductBody(body: unknown): ProductInput {
 
   const costPrice = parseNumber(record.cost_price ?? record.costPrice, "Preco de custo");
   const salePrice = parseNumber(record.sale_price ?? record.salePrice, "Preco de venda");
+  const categoryId = parseNumber(rawCategoryId, "Categoria");
+  const subcategoryId =
+    rawSubcategoryId === undefined || rawSubcategoryId === null || rawSubcategoryId === ""
+      ? null
+      : parseNumber(rawSubcategoryId, "Subcategoria");
 
   if (costPrice < 0) {
     throw new Error("Preco de custo nao pode ser negativo.");
@@ -74,6 +80,14 @@ function normalizeProductBody(body: unknown): ProductInput {
 
   if (salePrice < 0) {
     throw new Error("Preco de venda nao pode ser negativo.");
+  }
+
+  if (!Number.isInteger(categoryId) || categoryId <= 0) {
+    throw new Error("Selecione uma categoria valida.");
+  }
+
+  if (subcategoryId !== null && (!Number.isInteger(subcategoryId) || subcategoryId <= 0)) {
+    throw new Error("Selecione uma subcategoria valida.");
   }
 
   const variations = rawVariants.map((variant, index) => {
@@ -107,7 +121,8 @@ function normalizeProductBody(body: unknown): ProductInput {
   return {
     id,
     name,
-    category,
+    categoryId,
+    subcategoryId,
     description,
     costPrice,
     salePrice,

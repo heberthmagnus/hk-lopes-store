@@ -3,8 +3,10 @@ import type {
   AdminSaleHistoryItem,
   AdminStorePayload,
   CatalogPayload,
+  CategoryOption,
   ProductInput,
   SaleInput,
+  SubcategoryOption,
   Variation,
 } from "@/types/store";
 import { supabaseRequest } from "@/lib/supabase";
@@ -12,22 +14,27 @@ import { supabaseRequest } from "@/lib/supabase";
 type ProductRow = {
   id: number;
   name: string;
-  category: string;
+  category_id: number;
+  subcategory_id: number | null;
   description: string;
   cost_price: number;
   sale_price: number;
   image_url: string;
   active: boolean;
+  category: { id: number; name: string; slug: string; storefront_group: string | null } | null;
+  subcategory: { id: number; name: string; slug: string; category_id: number } | null;
 };
 
 type ProductSummaryRow = {
   id: number;
   name: string;
-  category: string;
   description: string;
   sale_price: number;
   image_url: string;
   active: boolean;
+  is_featured: boolean;
+  category: { id: number; name: string; slug: string; storefront_group: string | null } | null;
+  subcategory: { id: number; name: string; slug: string; category_id: number } | null;
 };
 
 type ProductSaleRow = {
@@ -59,6 +66,9 @@ type SaleItemHistoryRow = {
   quantity: number;
 };
 
+type CategoryRow = CategoryOption;
+type SubcategoryRow = SubcategoryOption;
+
 function buildVariation(productSalePrice: number, row: VariantRow): Variation {
   return {
     id: Number(row.id),
@@ -73,7 +83,7 @@ function buildVariation(productSalePrice: number, row: VariantRow): Variation {
 async function getProductsWithVariants() {
   const [products, variantRows] = await Promise.all([
     supabaseRequest<ProductRow[]>(
-      "products?select=id,name,category,description,cost_price,sale_price,image_url,active&order=created_at.desc"
+      "products?select=id,name,category_id,subcategory_id,description,cost_price,sale_price,image_url,active,category:categories!products_category_id_fkey(id,name,slug,storefront_group),subcategory:subcategories!products_subcategory_id_fkey(id,category_id,name,slug)&order=created_at.desc"
     ),
     supabaseRequest<VariantRow[]>(
       "product_variants?select=id,product_id,name,stock,extra_price&order=created_at.asc"
@@ -97,7 +107,12 @@ async function getProductsWithVariants() {
   const items: AdminProduct[] = products.map((product) => ({
     id: Number(product.id),
     name: product.name,
-    category: product.category,
+    category_id: Number(product.category_id),
+    category_name: product.category?.name ?? "Sem categoria",
+    category_slug: product.category?.slug ?? null,
+    storefront_group: product.category?.storefront_group ?? null,
+    subcategory_id: product.subcategory ? Number(product.subcategory.id) : null,
+    subcategory_name: product.subcategory?.name ?? null,
     description: product.description,
     cost_price: Number(product.cost_price),
     sale_price: Number(product.sale_price),
@@ -112,7 +127,7 @@ async function getProductsWithVariants() {
 export async function getCatalogPayload(): Promise<CatalogPayload> {
   const [products, variantRows] = await Promise.all([
     supabaseRequest<ProductSummaryRow[]>(
-      "products?select=id,name,category,description,sale_price,image_url,active&active=eq.true&order=created_at.desc"
+      "products?select=id,name,description,sale_price,image_url,active,is_featured,category:categories!products_category_id_fkey(id,name,slug,storefront_group),subcategory:subcategories!products_subcategory_id_fkey(id,category_id,name,slug)&active=eq.true&order=created_at.desc"
     ),
     supabaseRequest<VariantRow[]>(
       "product_variants?select=id,product_id,name,stock,extra_price&order=created_at.asc"
@@ -138,26 +153,44 @@ export async function getCatalogPayload(): Promise<CatalogPayload> {
       return {
         id: Number(product.id),
         name: product.name,
-        category: product.category,
+        category_name: product.category?.name ?? "Sem categoria",
+        category_slug: product.category?.slug ?? null,
+        storefront_group: product.category?.storefront_group ?? null,
+        subcategory_name: product.subcategory?.name ?? null,
         description: product.description,
         image_url: product.image_url,
         min_sale_price: prices.length ? Math.min(...prices) : fallbackPrice,
         max_sale_price: prices.length ? Math.max(...prices) : fallbackPrice,
+        is_featured: Boolean(product.is_featured),
       };
     }),
   };
 }
 
 export async function getAdminStorePayload(): Promise<AdminStorePayload> {
-  const [products, sales] = await Promise.all([
+  const [products, sales, categories, subcategories] = await Promise.all([
     getProductsWithVariants(),
     supabaseRequest<SaleRow[]>("sales?select=id,created_at,total_amount,total_profit&order=created_at.desc"),
+    supabaseRequest<CategoryRow[]>("categories?select=id,name,slug,storefront_group&order=name.asc"),
+    supabaseRequest<SubcategoryRow[]>("subcategories?select=id,category_id,name,slug&order=name.asc"),
   ]);
 
   const salesHistory = await getSalesHistory(sales);
 
   return {
     products,
+    categories: categories.map((category) => ({
+      id: Number(category.id),
+      name: category.name,
+      slug: category.slug,
+      storefront_group: category.storefront_group ?? null,
+    })),
+    subcategories: subcategories.map((subcategory) => ({
+      id: Number(subcategory.id),
+      category_id: Number(subcategory.category_id),
+      name: subcategory.name,
+      slug: subcategory.slug,
+    })),
     summary: {
       productCount: products.length,
       variationCount: products.reduce((sum, product) => sum + product.variations.length, 0),
@@ -256,9 +289,18 @@ export async function saveProduct(input: ProductInput) {
     throw new Error("Informe um preco de venda valido.");
   }
 
+  if (!Number.isInteger(input.categoryId) || input.categoryId <= 0) {
+    throw new Error("Selecione uma categoria valida.");
+  }
+
+  if (input.subcategoryId !== null && (!Number.isInteger(input.subcategoryId) || input.subcategoryId <= 0)) {
+    throw new Error("Selecione uma subcategoria valida.");
+  }
+
   const productBody = {
     name,
-    category: input.category.trim(),
+    category_id: input.categoryId,
+    subcategory_id: input.subcategoryId,
     description: input.description.trim(),
     cost_price: input.costPrice,
     sale_price: input.salePrice,

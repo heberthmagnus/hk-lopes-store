@@ -33,21 +33,24 @@ const FOOTER_WHATSAPP_NUMBER = WHATSAPP_NUMBER || "5531982645649";
 
 const CATEGORY_META = [
   {
-    key: "Tecnologia",
+    key: "tecnologia",
+    title: "Tecnologia",
     label: "⚡ Tecnologia",
     subtitle: "Fones · Caixas de Som · Acessórios",
     heroWord: "Tecnologia",
     heroText: "Performance e conectividade para vender com impacto visual.",
   },
   {
-    key: "Vestuário",
+    key: "vestuario",
+    title: "Vestuário",
     label: "👕 Vestuário",
     subtitle: "Camisas · Roupas · Moda",
     heroWord: "Vestuário",
     heroText: "Peças com identidade forte para atendimento rápido e venda fácil.",
   },
   {
-    key: "Utilidades",
+    key: "utilidades",
+    title: "Utilidades",
     label: "📦 Utilidades",
     subtitle: "Carregadores · Cabos · Essenciais",
     heroWord: "Utilidades",
@@ -63,34 +66,20 @@ type StoreCategory = (typeof CATEGORY_META)[number]["key"];
 
 type DecoratedProduct = CatalogProduct & {
   storefrontCategory: StoreCategory;
-  optionalTag?: string;
 };
 
-function normalizeCategory(category: string): StoreCategory {
-  const normalized = category.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-
-  if (
-    normalized.includes("tec") ||
-    normalized.includes("eletron") ||
-    normalized.includes("fone") ||
-    normalized.includes("gamer") ||
-    normalized.includes("informat")
-  ) {
-    return "Tecnologia";
+function normalizeStorefrontGroup(value: string | null | undefined): StoreCategory | null {
+  if (!value) {
+    return null;
   }
 
-  if (
-    normalized.includes("util") ||
-    normalized.includes("casa") ||
-    normalized.includes("cozinha") ||
-    normalized.includes("garrafa") ||
-    normalized.includes("organiz") ||
-    normalized.includes("cab")
-  ) {
-    return "Utilidades";
+  const normalized = value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
+
+  if (normalized === "tecnologia" || normalized === "vestuario" || normalized === "utilidades") {
+    return normalized as StoreCategory;
   }
 
-  return "Vestuário";
+  return null;
 }
 
 function buildPriceLabel(product: CatalogProduct) {
@@ -107,7 +96,7 @@ function buildWhatsappUrl(product: CatalogProduct) {
 }
 
 function getProductTag(product: DecoratedProduct) {
-  const rawTag = product.optionalTag?.trim().toLowerCase();
+  const rawTag = (product as DecoratedProduct & { tag?: string }).tag?.trim().toLowerCase();
 
   if (rawTag?.includes("oferta") || rawTag?.includes("promo")) {
     return { label: "🔥 Oferta", className: "offer" };
@@ -132,28 +121,46 @@ export function PublicCatalog({ products }: PublicCatalogProps) {
 
   const decoratedProducts = useMemo<DecoratedProduct[]>(
     () =>
-      products.map((product) => ({
-        ...product,
-        storefrontCategory: normalizeCategory(product.category),
-        optionalTag: (product as CatalogProduct & { tag?: string }).tag,
-      })),
+      products
+        .map((product) => {
+          const storefrontCategory = normalizeStorefrontGroup(product.storefront_group);
+
+          if (!storefrontCategory) {
+            return null;
+          }
+
+          return {
+            ...product,
+            storefrontCategory,
+          };
+        })
+        .filter((product): product is DecoratedProduct => product !== null),
     [products]
   );
 
   const slides = useMemo(
-    () =>
-      CATEGORY_META.map((categoryMeta, index) => {
-        const product =
-          decoratedProducts.find((item) => item.storefrontCategory === categoryMeta.key) ??
-          decoratedProducts[index] ??
-          decoratedProducts[0] ??
-          null;
+    () => {
+      const usedProductIds = new Set<number>();
+
+      return CATEGORY_META.map((categoryMeta) => {
+        const featuredMatch = decoratedProducts.find(
+          (product) => product.storefrontCategory === categoryMeta.key && product.is_featured && !usedProductIds.has(product.id)
+        );
+        const fallbackMatch = decoratedProducts.find(
+          (product) => product.storefrontCategory === categoryMeta.key && !usedProductIds.has(product.id)
+        );
+        const product = featuredMatch ?? fallbackMatch ?? null;
+
+        if (product) {
+          usedProductIds.add(product.id);
+        }
 
         return {
           ...categoryMeta,
           product,
         };
-      }),
+      });
+    },
     [decoratedProducts]
   );
 
@@ -163,7 +170,7 @@ export function PublicCatalog({ products }: PublicCatalogProps) {
     return decoratedProducts.filter((product) => {
       const matchesCategory =
         selectedCategory === "Todos" || product.storefrontCategory === selectedCategory;
-      const matchesSearch = [product.name, product.description, product.category]
+      const matchesSearch = [product.name, product.description, product.category_name, product.subcategory_name ?? ""]
         .join(" ")
         .toLowerCase()
         .includes(term);
@@ -260,9 +267,9 @@ export function PublicCatalog({ products }: PublicCatalogProps) {
             >
               <div className="hk-slide__content">
                 <div className="hk-slide__copy">
-                  <span className="hk-slide__tag">{slide.key}</span>
+                  <span className="hk-slide__tag">{slide.title}</span>
                   <h1 className="slide-title">
-                    Top <span>{slide.heroWord}</span> para vender mais
+                    {slide.product?.name ?? `Top ${slide.heroWord}`}
                   </h1>
                   <p>{slide.product?.description || slide.heroText}</p>
                   <strong className="hk-slide__price">
@@ -382,10 +389,10 @@ export function PublicCatalog({ products }: PublicCatalogProps) {
             </button>
             {CATEGORY_META.map((categoryMeta) => (
               <button
-                key={categoryMeta.key}
-                className={`hk-filter ${selectedCategory === categoryMeta.key ? "active" : ""}`}
-                type="button"
-                onClick={() => setSelectedCategory(categoryMeta.key)}
+              key={categoryMeta.key}
+              className={`hk-filter ${selectedCategory === categoryMeta.key ? "active" : ""}`}
+              type="button"
+              onClick={() => setSelectedCategory(categoryMeta.key)}
               >
                 {categoryMeta.label}
               </button>

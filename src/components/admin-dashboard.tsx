@@ -20,7 +20,8 @@ const APP_NAME = process.env.NEXT_PUBLIC_APP_NAME ?? "HK Lopes Store";
 type ProductFormState = {
   id: number | "";
   name: string;
-  category: string;
+  categoryId: string;
+  subcategoryId: string;
   description: string;
   costPrice: string;
   salePrice: string;
@@ -32,7 +33,8 @@ type ProductFormState = {
 const EMPTY_FORM: ProductFormState = {
   id: "",
   name: "",
-  category: "",
+  categoryId: "",
+  subcategoryId: "",
   description: "",
   costPrice: "",
   salePrice: "",
@@ -159,7 +161,8 @@ export function AdminDashboard({ initialPayload, userEmail }: AdminDashboardProp
     setForm({
       id: product.id,
       name: product.name,
-      category: product.category,
+      categoryId: String(product.category_id),
+      subcategoryId: product.subcategory_id ? String(product.subcategory_id) : "",
       description: product.description,
       costPrice: String(product.cost_price),
       salePrice: String(product.sale_price),
@@ -178,11 +181,24 @@ export function AdminDashboard({ initialPayload, userEmail }: AdminDashboardProp
   async function handleSaveProduct(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
+    if (!form.categoryId) {
+      setAdminFeedback("Selecione uma categoria.");
+      setAdminError(true);
+      return;
+    }
+
+    if (availableSubcategories.length > 0 && !form.subcategoryId) {
+      setAdminFeedback("Selecione uma subcategoria.");
+      setAdminError(true);
+      return;
+    }
+
     try {
       const input: ProductInput = {
         id: typeof form.id === "number" ? form.id : undefined,
         name: form.name.trim(),
-        category: form.category.trim(),
+        categoryId: Number(form.categoryId),
+        subcategoryId: form.subcategoryId ? Number(form.subcategoryId) : null,
         description: form.description.trim(),
         costPrice: Number(form.costPrice),
         salePrice: Number(form.salePrice),
@@ -193,7 +209,8 @@ export function AdminDashboard({ initialPayload, userEmail }: AdminDashboardProp
       const requestBody = {
         id: input.id,
         name: input.name,
-        category: input.category,
+        category_id: input.categoryId,
+        subcategory_id: input.subcategoryId,
         description: input.description,
         cost_price: input.costPrice,
         sale_price: input.salePrice,
@@ -342,6 +359,13 @@ export function AdminDashboard({ initialPayload, userEmail }: AdminDashboardProp
   }
 
   const priceRange = selectedProduct ? getPriceRange(selectedProduct.variations) : null;
+  const availableSubcategories = useMemo(
+    () =>
+      payload.subcategories.filter(
+        (subcategory) => String(subcategory.category_id) === form.categoryId
+      ),
+    [form.categoryId, payload.subcategories]
+  );
   const estimatedProfit =
     selectedVariation && Number(quantity) > 0
       ? (selectedVariation.display_price - (selectedProduct?.cost_price ?? 0)) * Number(quantity)
@@ -459,7 +483,10 @@ export function AdminDashboard({ initialPayload, userEmail }: AdminDashboardProp
                         {product.active ? "Ativo no catalogo" : "Inativo no catalogo"}
                       </span>
                       <span>{formatNumber(product.variations.length)} variacoes</span>
-                      <span>{product.category || "Sem categoria"}</span>
+                      <span>
+                        {product.category_name}
+                        {product.subcategory_name ? ` / ${product.subcategory_name}` : ""}
+                      </span>
                     </div>
 
                     <div className="product-actions">
@@ -610,12 +637,54 @@ export function AdminDashboard({ initialPayload, userEmail }: AdminDashboardProp
 
               <label>
                 <span>Categoria</span>
-                <input
-                  type="text"
-                  placeholder="Ex.: Camisetas"
-                  value={form.category}
-                  onChange={(event) => setForm((current) => ({ ...current, category: event.target.value }))}
-                />
+                <select
+                  value={form.categoryId}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      categoryId: event.target.value,
+                      subcategoryId:
+                        payload.subcategories.some(
+                          (subcategory) =>
+                            String(subcategory.id) === current.subcategoryId &&
+                            String(subcategory.category_id) === event.target.value
+                        )
+                          ? current.subcategoryId
+                          : "",
+                    }))
+                  }
+                >
+                  <option value="">Selecione uma categoria</option>
+                  {payload.categories.map((category) => (
+                    <option key={category.id} value={category.id}>
+                      {category.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label>
+                <span>Subcategoria</span>
+                <select
+                  value={form.subcategoryId}
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, subcategoryId: event.target.value }))
+                  }
+                  disabled={!form.categoryId || !availableSubcategories.length}
+                >
+                  <option value="">
+                    {!form.categoryId
+                      ? "Selecione uma categoria primeiro"
+                      : availableSubcategories.length
+                        ? "Selecione uma subcategoria"
+                        : "Nenhuma subcategoria cadastrada"}
+                  </option>
+                  {availableSubcategories.map((subcategory) => (
+                    <option key={subcategory.id} value={subcategory.id}>
+                      {subcategory.name}
+                    </option>
+                  ))}
+                </select>
               </label>
 
               <label>

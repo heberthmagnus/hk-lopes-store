@@ -1,9 +1,13 @@
 import type {
+  AdminCustomer,
+  AdminDashboardMetrics,
   AdminProduct,
   AdminSaleHistoryItem,
   AdminStorePayload,
   CatalogPayload,
   CategoryOption,
+  CustomerSource,
+  CustomerInput,
   ProductInput,
   SaleInput,
   SubcategoryOption,
@@ -55,8 +59,29 @@ type VariantRow = {
 type SaleRow = {
   id: number;
   created_at: string;
+  customer_id: number | null;
+  customer_name: string | null;
+  customer_phone: string | null;
+  payment_method: string | null;
+  discount_type: string | null;
+  discount_value: number | null;
+  payment_fee_value: number | null;
+  installment_count: number | null;
+  installment_amount: number | null;
+  first_payment_date: string | null;
+  sale_notes: string | null;
   total_amount: number;
   total_profit: number;
+};
+
+type CustomerRow = {
+  id: number;
+  name: string | null;
+  phone: string | null;
+  notes: string | null;
+  birth_day: number | null;
+  birth_month: number | null;
+  source: string | null;
 };
 
 type SaleItemHistoryRow = {
@@ -64,10 +89,85 @@ type SaleItemHistoryRow = {
   product_id: number;
   variant_id: number | null;
   quantity: number;
+  unit_price: number;
+  cost_price_snapshot: number;
 };
 
 type CategoryRow = CategoryOption;
 type SubcategoryRow = SubcategoryOption;
+
+async function getCustomers(): Promise<AdminCustomer[]> {
+  const customers = await supabaseRequest<CustomerRow[]>(
+    "customers?select=id,name,phone,notes,birth_day,birth_month,source&order=created_at.desc"
+  );
+
+  return customers
+    .map((customer) => ({
+      id: Number(customer.id),
+      name: (customer.name ?? "").trim(),
+      phone: (customer.phone ?? "").trim(),
+      notes: (customer.notes ?? "").trim(),
+      birth_day: customer.birth_day === null ? null : Number(customer.birth_day),
+      birth_month: customer.birth_month === null ? null : Number(customer.birth_month),
+      source: normalizeCustomerSource(customer.source),
+    }))
+    .filter((customer) => customer.name);
+}
+
+function normalizeCustomerSource(value: string | null | undefined): CustomerSource {
+  const normalized = (value ?? "").trim().toLowerCase();
+
+  switch (normalized) {
+    case "familiar":
+    case "amigo":
+    case "indicacao":
+    case "instagram":
+    case "whatsapp":
+    case "feira":
+    case "cliente_recorrente":
+      return normalized;
+    default:
+      return "outro";
+  }
+}
+
+function getSaoPauloDayKey(value: string) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(value));
+}
+
+function getTodaySaoPauloKey() {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
+function getMonthDayKey(day: number | null, month: number | null) {
+  if (!day || !month) {
+    return "";
+  }
+
+  return `${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function getTodayMonthDayKey() {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const month = parts.find((part) => part.type === "month")?.value ?? "";
+  const day = parts.find((part) => part.type === "day")?.value ?? "";
+
+  return month && day ? `${month}-${day}` : "";
+}
 
 function buildVariation(productSalePrice: number, row: VariantRow): Variation {
   return {
@@ -168,17 +268,22 @@ export async function getCatalogPayload(): Promise<CatalogPayload> {
 }
 
 export async function getAdminStorePayload(): Promise<AdminStorePayload> {
-  const [products, sales, categories, subcategories] = await Promise.all([
+  const [products, customers, sales, categories, subcategories] = await Promise.all([
     getProductsWithVariants(),
-    supabaseRequest<SaleRow[]>("sales?select=id,created_at,total_amount,total_profit&order=created_at.desc"),
+    getCustomers(),
+    supabaseRequest<SaleRow[]>(
+      "sales?select=id,created_at,customer_id,customer_name,customer_phone,payment_method,discount_type,discount_value,payment_fee_value,installment_count,installment_amount,first_payment_date,sale_notes,total_amount,total_profit&order=created_at.desc"
+    ),
     supabaseRequest<CategoryRow[]>("categories?select=id,name,slug,storefront_group&order=name.asc"),
     supabaseRequest<SubcategoryRow[]>("subcategories?select=id,category_id,name,slug&order=name.asc"),
   ]);
 
   const salesHistory = await getSalesHistory(sales);
+  const dashboard = buildDashboardMetrics(salesHistory, customers);
 
   return {
     products,
+    customers,
     categories: categories.map((category) => ({
       id: Number(category.id),
       name: category.name,
@@ -203,6 +308,7 @@ export async function getAdminStorePayload(): Promise<AdminStorePayload> {
       totalProfit: sales.reduce((sum, sale) => sum + Number(sale.total_profit), 0),
       salesCount: sales.length,
     },
+    dashboard,
     salesHistory,
   };
 }
@@ -212,12 +318,11 @@ async function getSalesHistory(sales: SaleRow[]): Promise<AdminSaleHistoryItem[]
     return [];
   }
 
-  const recentSales = sales.slice(0, 12);
-  const saleIds = recentSales.map((sale) => Number(sale.id));
+  const saleIds = sales.map((sale) => Number(sale.id));
   const saleFilter = saleIds.join(",");
 
   const saleItems = await supabaseRequest<SaleItemHistoryRow[]>(
-    `sale_items?select=sale_id,product_id,variant_id,quantity&sale_id=in.(${saleFilter})`
+    `sale_items?select=sale_id,product_id,variant_id,quantity,unit_price,cost_price_snapshot&sale_id=in.(${saleFilter})`
   );
 
   const productIds = Array.from(new Set(saleItems.map((item) => Number(item.product_id))));
@@ -249,8 +354,12 @@ async function getSalesHistory(sales: SaleRow[]): Promise<AdminSaleHistoryItem[]
     saleItemsBySaleId.set(saleId, bucket);
   }
 
-  return recentSales.map((sale) => {
+  return sales.map((sale) => {
     const items = saleItemsBySaleId.get(Number(sale.id)) ?? [];
+    const subtotalAmount = items.reduce(
+      (sum, item) => sum + Number(item.quantity) * Number(item.unit_price),
+      0
+    );
     const itemNames = items.map((item) => {
       const productName = productNameById.get(Number(item.product_id)) ?? "Produto";
       const variantName =
@@ -262,12 +371,147 @@ async function getSalesHistory(sales: SaleRow[]): Promise<AdminSaleHistoryItem[]
     return {
       id: Number(sale.id),
       created_at: sale.created_at,
+      subtotal_amount: subtotalAmount,
+      discount_amount: Math.max(subtotalAmount - Number(sale.total_amount), 0),
+      payment_fee_value: Number(sale.payment_fee_value ?? 0),
+      installment_count: Math.max(Number(sale.installment_count ?? 1), 1),
+      installment_amount: Number(sale.installment_amount ?? sale.total_amount ?? 0),
+      first_payment_date: sale.first_payment_date ?? null,
       total_amount: Number(sale.total_amount),
       total_profit: Number(sale.total_profit),
+      customer_name: sale.customer_name?.trim() || null,
+      customer_phone: sale.customer_phone?.trim() || null,
+      payment_method: sale.payment_method?.trim() || null,
+      sale_notes: sale.sale_notes?.trim() || null,
       item_count: items.reduce((sum, item) => sum + Number(item.quantity), 0),
       item_names: itemNames,
+      items: items.map((item) => ({
+        product_id: Number(item.product_id),
+        product_name: productNameById.get(Number(item.product_id)) ?? "Produto",
+        variation_name:
+          item.variant_id !== null ? variantNameById.get(Number(item.variant_id)) ?? null : null,
+        quantity: Number(item.quantity),
+        unit_price: Number(item.unit_price),
+        cost_price_snapshot: Number(item.cost_price_snapshot),
+        subtotal: Number(item.quantity) * Number(item.unit_price),
+      })),
     };
   });
+}
+
+function buildDashboardMetrics(
+  salesHistory: AdminSaleHistoryItem[],
+  customers: AdminCustomer[]
+): AdminDashboardMetrics {
+  const todayKey = getTodaySaoPauloKey();
+  const todayMonthDayKey = getTodayMonthDayKey();
+  const todaySales = salesHistory.filter((sale) => getSaoPauloDayKey(sale.created_at) === todayKey);
+
+  const totalRevenueToday = todaySales.reduce((sum, sale) => sum + sale.total_amount, 0);
+  const totalRevenueOverall = salesHistory.reduce((sum, sale) => sum + sale.total_amount, 0);
+  const totalProfitToday = todaySales.reduce((sum, sale) => sum + sale.total_profit, 0);
+  const totalProfitOverall = salesHistory.reduce((sum, sale) => sum + sale.total_profit, 0);
+  const salesCountToday = todaySales.length;
+  const salesCountOverall = salesHistory.length;
+  const totalDiscounts = salesHistory.reduce((sum, sale) => sum + sale.discount_amount, 0);
+  const totalPaymentFees = salesHistory.reduce((sum, sale) => sum + sale.payment_fee_value, 0);
+
+  const productMetrics = new Map<
+    string,
+    {
+      product_id: number;
+      product_name: string;
+      quantity_sold: number;
+      revenue: number;
+      profit: number;
+    }
+  >();
+  const customerMetrics = new Map<
+    string,
+    {
+      customer_id: number | null;
+      customer_name: string;
+      total_spent: number;
+      purchase_count: number;
+      items_purchased: number;
+    }
+  >();
+
+  for (const sale of salesHistory) {
+    const saleSubtotal = sale.subtotal_amount || 0;
+    const saleDiscount = sale.discount_amount || 0;
+    const saleFee = sale.payment_fee_value || 0;
+
+    for (const item of sale.items) {
+      const lineShare = saleSubtotal > 0 ? item.subtotal / saleSubtotal : 0;
+      const allocatedDiscount = saleDiscount * lineShare;
+      const allocatedFee = saleFee * lineShare;
+      const lineRevenue = item.subtotal - allocatedDiscount;
+      const lineCost = item.cost_price_snapshot * item.quantity;
+
+      const productKey = item.product_name;
+      const currentProduct = productMetrics.get(productKey) ?? {
+        product_id: item.product_id,
+        product_name: item.product_name,
+        quantity_sold: 0,
+        revenue: 0,
+        profit: 0,
+      };
+
+      currentProduct.quantity_sold += item.quantity;
+      currentProduct.revenue += lineRevenue;
+      currentProduct.profit += lineRevenue - allocatedFee - lineCost;
+      productMetrics.set(productKey, currentProduct);
+    }
+
+    if (sale.customer_name) {
+      const customerKey = sale.customer_name.toLowerCase();
+      const currentCustomer = customerMetrics.get(customerKey) ?? {
+        customer_id: null,
+        customer_name: sale.customer_name,
+        total_spent: 0,
+        purchase_count: 0,
+        items_purchased: 0,
+      };
+
+      currentCustomer.total_spent += sale.total_amount;
+      currentCustomer.purchase_count += 1;
+      currentCustomer.items_purchased += sale.item_count;
+      customerMetrics.set(customerKey, currentCustomer);
+    }
+  }
+
+  const toSortedTopFive = <T,>(items: T[], getter: (item: T) => number) =>
+    [...items].sort((left, right) => getter(right) - getter(left)).slice(0, 5);
+
+  const birthdaysToday = customers
+    .filter(
+      (customer) => getMonthDayKey(customer.birth_day, customer.birth_month) === todayMonthDayKey
+    )
+    .map((customer) => ({
+      id: customer.id,
+      name: customer.name,
+      phone: customer.phone,
+    }))
+    .slice(0, 10);
+
+  return {
+    revenueToday: totalRevenueToday,
+    revenueOverall: totalRevenueOverall,
+    profitToday: totalProfitToday,
+    profitOverall: totalProfitOverall,
+    salesToday: salesCountToday,
+    salesOverall: salesCountOverall,
+    ticketAverageToday: salesCountToday ? totalRevenueToday / salesCountToday : 0,
+    ticketAverageOverall: salesCountOverall ? totalRevenueOverall / salesCountOverall : 0,
+    totalDiscounts,
+    totalPaymentFees,
+    topProductsByQuantity: toSortedTopFive(Array.from(productMetrics.values()), (item) => item.quantity_sold),
+    topProductsByRevenue: toSortedTopFive(Array.from(productMetrics.values()), (item) => item.revenue),
+    topProductsByProfit: toSortedTopFive(Array.from(productMetrics.values()), (item) => item.profit),
+    topCustomers: toSortedTopFive(Array.from(customerMetrics.values()), (item) => item.total_spent),
+    birthdaysToday,
+  };
 }
 
 export async function saveProduct(input: ProductInput) {
@@ -363,49 +607,258 @@ export async function setProductActive(productId: number, active: boolean) {
   });
 }
 
-export async function registerSale(input: SaleInput) {
-  if (!input.productId || !input.variationId) {
-    throw new Error("Selecione um produto e uma variacao.");
+export async function saveCustomer(input: CustomerInput) {
+  const name = input.name.trim();
+  const phone = input.phone.trim();
+  const notes = input.notes.trim();
+  const birthDay = input.birthDay;
+  const birthMonth = input.birthMonth;
+  const source = normalizeCustomerSource(input.source);
+
+  if (!name) {
+    throw new Error("Informe o nome do cliente.");
   }
 
-  if (!Number.isInteger(input.quantity) || input.quantity <= 0) {
-    throw new Error("Informe uma quantidade valida.");
+  if (birthDay !== null && (!Number.isInteger(birthDay) || birthDay < 1 || birthDay > 31)) {
+    throw new Error("Informe um dia de aniversario valido.");
   }
+
+  if (birthMonth !== null && (!Number.isInteger(birthMonth) || birthMonth < 1 || birthMonth > 12)) {
+    throw new Error("Informe um mes de aniversario valido.");
+  }
+
+  if ((birthDay === null) !== (birthMonth === null)) {
+    throw new Error("Informe o dia e o mes do aniversario juntos.");
+  }
+
+  const customerBody = {
+    name,
+    phone: phone || null,
+    notes: notes || null,
+    birth_day: birthDay,
+    birth_month: birthMonth,
+    source,
+  };
+
+  if (input.id) {
+    await supabaseRequest(`customers?id=eq.${input.id}`, {
+      method: "PATCH",
+      body: JSON.stringify(customerBody),
+      prefer: "return=minimal",
+    });
+
+    return input.id;
+  }
+
+  const createdCustomers = await supabaseRequest<Array<{ id: number }>>("customers", {
+    method: "POST",
+    body: JSON.stringify([customerBody]),
+    prefer: "return=representation",
+  });
+
+  const customerId = createdCustomers[0]?.id;
+
+  if (!customerId) {
+    throw new Error("Nao foi possivel salvar o cliente.");
+  }
+
+  return customerId;
+}
+
+export async function registerSale(input: SaleInput) {
+  if (!input.items.length) {
+    throw new Error("Adicione ao menos um item na venda.");
+  }
+
+  if (!["pix", "dinheiro", "debito", "credito"].includes(input.paymentMethod)) {
+    throw new Error("Selecione uma forma de pagamento valida.");
+  }
+
+  if (!["amount", "percent"].includes(input.discountType)) {
+    throw new Error("Selecione um tipo de desconto valido.");
+  }
+
+  if (Number.isNaN(input.discountValue) || input.discountValue < 0) {
+    throw new Error("Informe um desconto valido.");
+  }
+
+  if (Number.isNaN(input.paymentFeeValue) || input.paymentFeeValue < 0) {
+    throw new Error("Informe uma taxa de pagamento valida.");
+  }
+
+  if (!Number.isInteger(input.installmentCount) || input.installmentCount <= 0) {
+    throw new Error("Informe um parcelamento valido.");
+  }
+
+  if (Number.isNaN(input.installmentAmount) || input.installmentAmount < 0) {
+    throw new Error("Informe um valor de parcela valido.");
+  }
+
+  if (input.firstPaymentDate && Number.isNaN(new Date(`${input.firstPaymentDate}T12:00:00`).getTime())) {
+    throw new Error("Informe uma data valida para o primeiro pagamento.");
+  }
+
+  const aggregatedItems = Array.from(
+    input.items.reduce((map, item) => {
+      if (!Number.isInteger(item.productId) || item.productId <= 0) {
+        throw new Error("Selecione um produto valido.");
+      }
+
+      if (!Number.isInteger(item.variationId) || item.variationId <= 0) {
+        throw new Error("Selecione uma variacao valida.");
+      }
+
+      if (!Number.isInteger(item.quantity) || item.quantity <= 0) {
+        throw new Error("Informe uma quantidade valida.");
+      }
+
+      const key = `${item.productId}:${item.variationId}`;
+      const current = map.get(key);
+
+      if (current) {
+        current.quantity += item.quantity;
+      } else {
+        map.set(key, { ...item });
+      }
+
+      return map;
+    }, new Map<string, { productId: number; variationId: number; quantity: number }>())
+    .values()
+  );
+
+  const productIds = Array.from(new Set(aggregatedItems.map((item) => item.productId)));
+  const variantIds = Array.from(new Set(aggregatedItems.map((item) => item.variationId)));
 
   const [products, variants] = await Promise.all([
     supabaseRequest<ProductSaleRow[]>(
-      `products?select=id,name,cost_price,sale_price&id=eq.${input.productId}&limit=1`
+      `products?select=id,name,cost_price,sale_price&id=in.(${productIds.join(",")})`
     ),
     supabaseRequest<VariantRow[]>(
-      `product_variants?select=id,product_id,name,stock,extra_price&id=eq.${input.variationId}&limit=1`
+      `product_variants?select=id,product_id,name,stock,extra_price&id=in.(${variantIds.join(",")})`
     ),
   ]);
 
-  const product = products[0];
-  const variant = variants[0];
+  const productById = new Map(products.map((product) => [Number(product.id), product]));
+  const variantById = new Map(variants.map((variant) => [Number(variant.id), variant]));
 
-  if (!product || !variant || Number(variant.product_id) !== input.productId) {
-    throw new Error("Produto ou variacao nao encontrados.");
+  const resolvedItems = aggregatedItems.map((item) => {
+    const product = productById.get(item.productId);
+    const variant = variantById.get(item.variationId);
+
+    if (!product || !variant || Number(variant.product_id) !== item.productId) {
+      throw new Error("Produto ou variacao nao encontrados.");
+    }
+
+    const currentStock = Number(variant.stock);
+
+    if (item.quantity > currentStock) {
+      throw new Error(`Quantidade maior do que o estoque disponivel para ${product.name} - ${variant.name}.`);
+    }
+
+    const unitPrice = Number(product.sale_price) + Number(variant.extra_price);
+    const unitCost = Number(product.cost_price);
+
+    return {
+      product,
+      variant,
+      quantity: item.quantity,
+      currentStock,
+      unitPrice,
+      unitCost,
+      lineTotal: unitPrice * item.quantity,
+      lineCost: unitCost * item.quantity,
+    };
+  });
+
+  const grossAmount = resolvedItems.reduce((sum, item) => sum + item.lineTotal, 0);
+  const discountAmount =
+    input.discountType === "percent"
+      ? grossAmount * (input.discountValue / 100)
+      : input.discountValue;
+
+  if (input.discountType === "percent" && input.discountValue > 100) {
+    throw new Error("O desconto percentual nao pode ser maior que 100%.");
   }
 
-  const currentStock = Number(variant.stock);
-
-  if (input.quantity > currentStock) {
-    throw new Error("Quantidade maior do que o estoque disponivel.");
+  if (discountAmount > grossAmount) {
+    throw new Error("O desconto nao pode ser maior do que o subtotal da venda.");
   }
 
-  const unitPrice = Number(product.sale_price) + Number(variant.extra_price);
-  const unitCost = Number(product.cost_price);
-  const totalAmount = unitPrice * input.quantity;
-  const totalProfit = (unitPrice - unitCost) * input.quantity;
+  let customerId = input.customerId;
+  let customerName = input.customerName.trim();
+  let customerPhone = input.customerPhone.trim();
+
+  if (customerId) {
+    const customers = await supabaseRequest<CustomerRow[]>(
+      `customers?select=id,name,phone,notes,birth_day,birth_month,source&id=eq.${customerId}&limit=1`
+    );
+    const existingCustomer = customers[0];
+
+    if (!existingCustomer) {
+      throw new Error("Cliente selecionado nao encontrado.");
+    }
+
+    customerName = (existingCustomer.name ?? "").trim();
+    customerPhone = (existingCustomer.phone ?? "").trim();
+  } else if (customerName) {
+    const createdCustomers = await supabaseRequest<Array<{ id: number; name: string | null; phone: string | null }>>(
+      "customers",
+      {
+        method: "POST",
+        body: JSON.stringify([
+          {
+            name: customerName,
+            phone: customerPhone || null,
+            notes: input.customerNotes.trim() || null,
+            birth_day: input.customerBirthDay,
+            birth_month: input.customerBirthMonth,
+            source: normalizeCustomerSource(input.customerSource),
+          },
+        ]),
+        prefer: "return=representation",
+      }
+    );
+
+    const createdCustomer = createdCustomers[0];
+
+    if (!createdCustomer?.id) {
+      throw new Error("Nao foi possivel criar o cliente.");
+    }
+
+    customerId = Number(createdCustomer.id);
+    customerName = (createdCustomer.name ?? customerName).trim();
+    customerPhone = (createdCustomer.phone ?? customerPhone).trim();
+  }
+
+  const combinedSaleNotes = [input.saleNotes.trim(), input.customerNotes.trim()]
+    .filter(Boolean)
+    .join("\n\n");
+  const totalAmount = Math.max(grossAmount - discountAmount, 0);
+  const installmentAmount =
+    input.installmentCount > 1
+      ? input.installmentAmount > 0
+        ? input.installmentAmount
+        : totalAmount / input.installmentCount
+      : totalAmount;
+  const firstPaymentDate = input.firstPaymentDate.trim();
+  const totalCost = resolvedItems.reduce((sum, item) => sum + item.lineCost, 0);
+  const totalProfit = totalAmount - totalCost - input.paymentFeeValue;
 
   const createdSales = await supabaseRequest<Array<{ id: number }>>("sales", {
     method: "POST",
     body: JSON.stringify([
       {
-        customer_name: "",
-        customer_phone: "",
-        payment_method: "manual",
+        customer_id: customerId,
+        customer_name: customerName || null,
+        customer_phone: customerPhone || null,
+        payment_method: input.paymentMethod,
+        discount_type: input.discountType,
+        discount_value: input.discountValue,
+        payment_fee_value: input.paymentFeeValue,
+        installment_count: input.installmentCount,
+        installment_amount: installmentAmount,
+        first_payment_date: firstPaymentDate || null,
+        sale_notes: combinedSaleNotes || null,
         total_amount: totalAmount,
         total_profit: totalProfit,
       },
@@ -422,31 +875,39 @@ export async function registerSale(input: SaleInput) {
   await Promise.all([
     supabaseRequest("sale_items", {
       method: "POST",
-      body: JSON.stringify([
-        {
+      body: JSON.stringify(
+        resolvedItems.map((item) => ({
           sale_id: saleId,
-          product_id: Number(product.id),
-          variant_id: Number(variant.id),
-          quantity: input.quantity,
-          unit_price: unitPrice,
-          cost_price_snapshot: unitCost,
-        },
-      ]),
+          product_id: Number(item.product.id),
+          variant_id: Number(item.variant.id),
+          quantity: item.quantity,
+          unit_price: item.unitPrice,
+          cost_price_snapshot: item.unitCost,
+        }))
+      ),
       prefer: "return=minimal",
     }),
-    supabaseRequest(`product_variants?id=eq.${variant.id}`, {
-      method: "PATCH",
-      body: JSON.stringify({
-        stock: currentStock - input.quantity,
-      }),
-      prefer: "return=minimal",
-    }),
+    ...resolvedItems.map((item) =>
+      supabaseRequest(`product_variants?id=eq.${item.variant.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          stock: item.currentStock - item.quantity,
+        }),
+        prefer: "return=minimal",
+      })
+    ),
   ]);
 
   return {
-    quantity: input.quantity,
-    productName: product.name,
-    variationName: variant.name,
+    quantity: resolvedItems.reduce((sum, item) => sum + item.quantity, 0),
+    itemCount: resolvedItems.length,
+    productName: resolvedItems[0]?.product.name ?? "Venda",
+    variationName:
+      resolvedItems.length === 1 ? resolvedItems[0]?.variant.name ?? "" : `${resolvedItems.length} itens`,
+    grossAmount,
+    discountAmount,
+    installmentCount: input.installmentCount,
+    installmentAmount,
     totalAmount,
     totalProfit,
   };

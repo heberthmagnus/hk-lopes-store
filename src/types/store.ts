@@ -38,6 +38,26 @@ export type SubcategoryOption = {
   slug: string;
 };
 
+export type AdminCustomer = {
+  id: number;
+  name: string;
+  phone: string;
+  notes: string;
+  birth_day: number | null;
+  birth_month: number | null;
+  source: CustomerSource;
+};
+
+export type CustomerSource =
+  | "familiar"
+  | "amigo"
+  | "indicacao"
+  | "instagram"
+  | "whatsapp"
+  | "feira"
+  | "cliente_recorrente"
+  | "outro";
+
 export type CatalogProduct = {
   id: number;
   name: string;
@@ -61,13 +81,74 @@ export type AdminSummary = {
   salesCount: number;
 };
 
+export type AdminSaleHistoryDetailItem = {
+  product_id: number;
+  product_name: string;
+  variation_name: string | null;
+  quantity: number;
+  unit_price: number;
+  cost_price_snapshot: number;
+  subtotal: number;
+};
+
 export type AdminSaleHistoryItem = {
   id: number;
   created_at: string;
+  subtotal_amount: number;
+  discount_amount: number;
+  payment_fee_value: number;
+  installment_count: number;
+  installment_amount: number;
+  first_payment_date: string | null;
   total_amount: number;
   total_profit: number;
+  customer_name: string | null;
+  customer_phone: string | null;
+  payment_method: string | null;
+  sale_notes: string | null;
   item_count: number;
   item_names: string[];
+  items: AdminSaleHistoryDetailItem[];
+};
+
+export type AdminTopProductMetric = {
+  product_id: number;
+  product_name: string;
+  quantity_sold: number;
+  revenue: number;
+  profit: number;
+};
+
+export type AdminTopCustomerMetric = {
+  customer_id: number | null;
+  customer_name: string;
+  total_spent: number;
+  purchase_count: number;
+  items_purchased: number;
+};
+
+export type AdminBirthdayCustomer = {
+  id: number;
+  name: string;
+  phone: string;
+};
+
+export type AdminDashboardMetrics = {
+  revenueToday: number;
+  revenueOverall: number;
+  profitToday: number;
+  profitOverall: number;
+  salesToday: number;
+  salesOverall: number;
+  ticketAverageToday: number;
+  ticketAverageOverall: number;
+  totalDiscounts: number;
+  totalPaymentFees: number;
+  topProductsByQuantity: AdminTopProductMetric[];
+  topProductsByRevenue: AdminTopProductMetric[];
+  topProductsByProfit: AdminTopProductMetric[];
+  topCustomers: AdminTopCustomerMetric[];
+  birthdaysToday: AdminBirthdayCustomer[];
 };
 
 export type CatalogPayload = {
@@ -76,9 +157,11 @@ export type CatalogPayload = {
 
 export type AdminStorePayload = {
   products: AdminProduct[];
+  customers: AdminCustomer[];
   categories: CategoryOption[];
   subcategories: SubcategoryOption[];
   summary: AdminSummary;
+  dashboard: AdminDashboardMetrics;
   salesHistory: AdminSaleHistoryItem[];
 };
 
@@ -100,8 +183,35 @@ export type ProductInput = {
   }>;
 };
 
+export type CustomerInput = {
+  id?: number;
+  name: string;
+  phone: string;
+  notes: string;
+  birthDay: number | null;
+  birthMonth: number | null;
+  source: CustomerSource;
+};
+
 export type SaleInput = {
-  productId: number;
-  variationId: number;
-  quantity: number;
+  customerId: number | null;
+  customerName: string;
+  customerPhone: string;
+  customerNotes: string;
+  customerBirthDay: number | null;
+  customerBirthMonth: number | null;
+  customerSource: CustomerSource;
+  paymentMethod: "pix" | "dinheiro" | "debito" | "credito";
+  discountType: "amount" | "percent";
+  discountValue: number;
+  paymentFeeValue: number;
+  installmentCount: number;
+  installmentAmount: number;
+  firstPaymentDate: string;
+  saleNotes: string;
+  items: Array<{
+    productId: number;
+    variationId: number;
+    quantity: number;
+  }>;
 };

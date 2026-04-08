@@ -7,7 +7,11 @@ type AdminSalesSuccessResponse = {
   message: string;
   sale: Awaited<ReturnType<typeof registerSale>>;
   products: Awaited<ReturnType<typeof getAdminStorePayload>>["products"];
+  customers: Awaited<ReturnType<typeof getAdminStorePayload>>["customers"];
+  categories: Awaited<ReturnType<typeof getAdminStorePayload>>["categories"];
+  subcategories: Awaited<ReturnType<typeof getAdminStorePayload>>["subcategories"];
   summary: Awaited<ReturnType<typeof getAdminStorePayload>>["summary"];
+  dashboard: Awaited<ReturnType<typeof getAdminStorePayload>>["dashboard"];
   salesHistory: Awaited<ReturnType<typeof getAdminStorePayload>>["salesHistory"];
 };
 
@@ -26,23 +30,96 @@ function normalizeSaleBody(body: unknown): SaleInput {
   }
 
   const record = body as Record<string, unknown>;
-  const productId = Number(record.productId);
-  const variationId = Number(record.variationId);
-  const quantity = Number(record.quantity);
+  const customerIdValue = record.customerId;
+  const customerId =
+    customerIdValue === null || customerIdValue === undefined || customerIdValue === ""
+      ? null
+      : Number(customerIdValue);
+  const customerName = typeof record.customerName === "string" ? record.customerName : "";
+  const customerPhone = typeof record.customerPhone === "string" ? record.customerPhone : "";
+  const customerNotes = typeof record.customerNotes === "string" ? record.customerNotes : "";
+  const customerBirthDay =
+    record.customerBirthDay === undefined || record.customerBirthDay === null || record.customerBirthDay === ""
+      ? null
+      : Number(record.customerBirthDay);
+  const customerBirthMonth =
+    record.customerBirthMonth === undefined || record.customerBirthMonth === null || record.customerBirthMonth === ""
+      ? null
+      : Number(record.customerBirthMonth);
+  const customerSource = String(record.customerSource ?? "outro").trim().toLowerCase();
+  const paymentMethod = String(record.paymentMethod ?? "").trim().toLowerCase();
+  const discountType = String(record.discountType ?? "").trim().toLowerCase();
+  const discountValue = Number(record.discountValue ?? 0);
+  const paymentFeeValue = Number(record.paymentFeeValue ?? 0);
+  const installmentCount = Number(record.installmentCount ?? 1);
+  const installmentAmount = Number(record.installmentAmount ?? 0);
+  const firstPaymentDate = typeof record.firstPaymentDate === "string" ? record.firstPaymentDate : "";
+  const saleNotes = typeof record.saleNotes === "string" ? record.saleNotes : "";
+  const rawItems = Array.isArray(record.items) ? record.items : [];
 
-  if (!Number.isInteger(productId) || productId <= 0) {
-    throw new Error("Selecione um produto valido.");
+  const items = rawItems.map((item) => {
+    const entry = item as Record<string, unknown>;
+    const productId = Number(entry.productId);
+    const variationId = Number(entry.variationId);
+    const quantity = Number(entry.quantity);
+
+    if (!Number.isInteger(productId) || productId <= 0) {
+      throw new Error("Selecione um produto valido.");
+    }
+
+    if (!Number.isInteger(variationId) || variationId <= 0) {
+      throw new Error("Selecione uma variacao valida.");
+    }
+
+    if (!Number.isInteger(quantity) || quantity <= 0) {
+      throw new Error("Informe uma quantidade valida.");
+    }
+
+    return { productId, variationId, quantity };
+  });
+
+  if (!items.length) {
+    throw new Error("Adicione ao menos um item na venda.");
   }
 
-  if (!Number.isInteger(variationId) || variationId <= 0) {
-    throw new Error("Selecione uma variacao valida.");
+  if (customerId !== null && (!Number.isInteger(customerId) || customerId <= 0)) {
+    throw new Error("Selecione um cliente valido.");
   }
 
-  if (!Number.isInteger(quantity) || quantity <= 0) {
-    throw new Error("Informe uma quantidade valida.");
+  if (!["pix", "dinheiro", "debito", "credito"].includes(paymentMethod)) {
+    throw new Error("Selecione uma forma de pagamento valida.");
   }
 
-  return { productId, variationId, quantity };
+  if (!["amount", "percent"].includes(discountType)) {
+    throw new Error("Selecione um tipo de desconto valido.");
+  }
+
+  if (Number.isNaN(discountValue) || discountValue < 0) {
+    throw new Error("Informe um desconto valido.");
+  }
+
+  if (Number.isNaN(paymentFeeValue) || paymentFeeValue < 0) {
+    throw new Error("Informe uma taxa de pagamento valida.");
+  }
+
+  return {
+    customerId,
+    customerName: customerName.trim(),
+    customerPhone: customerPhone.trim(),
+    customerNotes: customerNotes.trim(),
+    customerBirthDay,
+    customerBirthMonth,
+    customerSource: customerSource as SaleInput["customerSource"],
+    paymentMethod: paymentMethod as SaleInput["paymentMethod"],
+    discountType: discountType as SaleInput["discountType"],
+    discountValue,
+    paymentFeeValue,
+    installmentCount,
+    installmentAmount,
+    firstPaymentDate: firstPaymentDate.trim(),
+    saleNotes: saleNotes.trim(),
+    items,
+  };
 }
 
 export async function POST(request: Request) {

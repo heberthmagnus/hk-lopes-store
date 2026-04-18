@@ -7,6 +7,11 @@ const appName = process.env.NEXT_PUBLIC_APP_NAME ?? "HK Lopes Store";
 export const metadata: Metadata = {
   title: appName,
   description: "HK Lopes Store - catálogo simples com estoque, vendas e lucro.",
+  icons: {
+    icon: "/logo-hk-lopes-store.png",
+    shortcut: "/logo-hk-lopes-store.png",
+    apple: "/logo-hk-lopes-store.png",
+  },
 };
 
 export default function RootLayout({

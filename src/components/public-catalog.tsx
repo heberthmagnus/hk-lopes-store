@@ -60,6 +60,7 @@ const CATEGORY_META = [
 
 type PublicCatalogProps = {
   products: CatalogProduct[];
+  variant?: "default" | "template";
 };
 
 type StoreCategory = (typeof CATEGORY_META)[number]["key"];
@@ -113,7 +114,7 @@ function getProductTag(product: DecoratedProduct) {
   return null;
 }
 
-export function PublicCatalog({ products }: PublicCatalogProps) {
+export function PublicCatalog({ products, variant = "default" }: PublicCatalogProps) {
   const catalogRef = useRef<HTMLElement | null>(null);
   const [search, setSearch] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<"Todos" | StoreCategory>("Todos");
@@ -208,51 +209,121 @@ export function PublicCatalog({ products }: PublicCatalogProps) {
     catalogRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
+  const rootClassName = [
+    "hk-homepage",
+    variant === "template" ? "hk-homepage--template" : "",
+    bebasNeue.variable,
+    barlow.variable,
+    barlowCondensed.variable,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   return (
-    <div className={["hk-homepage", bebasNeue.variable, barlow.variable, barlowCondensed.variable].join(" ")}>
-      <header className="hk-header">
-        <div className="hk-header__inner">
-          <div className="hk-header__brand">
-            <BrandLogo priority />
-            <div className="hk-header__brand-copy">
-              <strong>HK Lopes Store</strong>
-              <span>Tecnologia · Vestuário · Utilidades</span>
+    <div className={rootClassName}>
+      {variant === "template" ? (
+        <header className="hk-template-header">
+          <div className="hk-template-header__topbar">
+            <div className="hk-template-header__topbar-inner">
+              <div className="hk-template-header__brand">
+                <BrandLogo priority />
+                <div className="hk-template-header__brand-copy">
+                  <strong>HK Lopes Store</strong>
+                  <span>Ofertas que conectam tecnologia, vestuario e utilidades</span>
+                </div>
+              </div>
+
+              <label className="hk-template-header__search" aria-label="Buscar produtos">
+                <div className="hk-template-header__search-shell">
+                  <input
+                    type="search"
+                    placeholder="Pesquisar na HK Lopes Store"
+                    value={search}
+                    onChange={(event) => setSearch(event.target.value)}
+                  />
+                  <span className="hk-template-header__search-button" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" className="hk-template-header__search-icon" role="presentation">
+                      <path
+                        d="M10.5 4a6.5 6.5 0 1 0 4.03 11.6l4.43 4.43 1.41-1.41-4.43-4.43A6.5 6.5 0 0 0 10.5 4Zm0 2a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9Z"
+                        fill="currentColor"
+                      />
+                    </svg>
+                  </span>
+                </div>
+              </label>
+
+              <div className="hk-template-header__actions">
+                <Link className="hk-template-header__admin" href="/login">
+                  Admin
+                </Link>
+              </div>
             </div>
           </div>
 
-          <label className="hk-header__search" aria-label="Buscar produtos">
-            <div className="hk-header__search-shell">
-              <input
-                type="search"
-                placeholder="Pesquisar na HK Lopes Store"
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-              />
-              <span className="hk-header__search-button" aria-hidden="true">
-                <svg viewBox="0 0 24 24" className="hk-header__search-icon" role="presentation">
+          <div className="hk-template-header__menu">
+            <nav className="hk-template-header__menu-inner" aria-label="Navegação principal da loja">
+              <Link className="active" href="/">
+                Início
+              </Link>
+              <a href="#categorias">Categorias</a>
+              <a href="#catalogo">Produtos</a>
+            </nav>
+          </div>
+        </header>
+      ) : (
+        <header className="hk-header">
+          <div className="hk-header__inner">
+            <div className="hk-header__brand">
+              <BrandLogo priority />
+              <div className="hk-header__brand-copy">
+                <strong>HK Lopes Store</strong>
+                <span>Ofertas que conectam tecnologia, vestuario e utilidades</span>
+              </div>
+            </div>
+
+            <label className="hk-header__search" aria-label="Buscar produtos">
+              <div className="hk-header__search-shell">
+                <input
+                  type="search"
+                  placeholder="Pesquisar na HK Lopes Store"
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                />
+                <span className="hk-header__search-button" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" className="hk-header__search-icon" role="presentation">
+                    <path
+                      d="M10.5 4a6.5 6.5 0 1 0 4.03 11.6l4.43 4.43 1.41-1.41-4.43-4.43A6.5 6.5 0 0 0 10.5 4Zm0 2a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9Z"
+                      fill="currentColor"
+                    />
+                  </svg>
+                </span>
+              </div>
+            </label>
+
+            <div className="hk-header__actions">
+              <Link className="hk-header__admin" href="/login">
+                <svg viewBox="0 0 24 24" role="presentation" aria-hidden="true">
                   <path
-                    d="M10.5 4a6.5 6.5 0 1 0 4.03 11.6l4.43 4.43 1.41-1.41-4.43-4.43A6.5 6.5 0 0 0 10.5 4Zm0 2a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9Z"
+                    d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Zm0 2c-3.33 0-6 1.79-6 4v1h12v-1c0-2.21-2.67-4-6-4Z"
                     fill="currentColor"
                   />
                 </svg>
-              </span>
+                <span>Admin</span>
+              </Link>
             </div>
-          </label>
-
-          <div className="hk-header__actions">
-            <Link className="hk-header__admin" href="/login">
-              <svg viewBox="0 0 24 24" role="presentation" aria-hidden="true">
-                <path
-                  d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Zm0 2c-3.33 0-6 1.79-6 4v1h12v-1c0-2.21-2.67-4-6-4Z"
-                  fill="currentColor"
-                />
-              </svg>
-              <span>Admin</span>
-            </Link>
-            {/* Future slot: Login · Favoritos · Carrinho */}
           </div>
-        </div>
-      </header>
+
+          <div className="hk-header__nav-shell">
+            <nav className="hk-header__nav" aria-label="Navegação principal da loja">
+              <Link className="active" href="/">
+                Início
+              </Link>
+              <a href="#categorias">Categorias</a>
+              <a href="#catalogo">Produtos</a>
+            </nav>
+          </div>
+        </header>
+      )}
 
       <section className="hk-carousel" aria-label="Top vendas da HK Lopes Store">
         <div className="hk-carousel__track" style={{ transform: `translateX(-${activeSlide * 100}%)` }}>
@@ -335,7 +406,7 @@ export function PublicCatalog({ products }: PublicCatalogProps) {
         </div>
       </section>
 
-      <section className="hk-categories" aria-label="Categorias em destaque">
+      <section className="hk-categories" id="categorias" aria-label="Categorias em destaque">
         {CATEGORY_META.map((categoryMeta) => {
           const categoryProduct =
             decoratedProducts.find((item) => item.storefrontCategory === categoryMeta.key) ?? null;
@@ -445,44 +516,64 @@ export function PublicCatalog({ products }: PublicCatalogProps) {
         )}
       </section>
 
-      <footer className="hk-footer">
-        <div className="hk-footer__inner">
-          <div className="hk-footer__brand">
-            <BrandLogo size="compact" />
+      {variant === "template" ? (
+        <footer className="hk-template-footer">
+          <div className="hk-template-footer__inner">
             <div>
-              <strong>HK Lopes Store</strong>
-              <span>Tecnologia · Vestuário · Utilidades</span>
+              <h3 className="hk-template-footer__title">HK Lopes Store</h3>
+              <div className="hk-template-footer__info">
+                <div>Tecnologia, vestuario e utilidades em uma vitrine digital pratica.</div>
+                <div>Atendimento direto pelo WhatsApp para acelerar as vendas.</div>
+              </div>
             </div>
-          </div>
 
-          <div className="hk-footer__info">
-            <span>Atendimento pelo WhatsApp</span>
+            <div className="hk-template-footer__logo">
+              <BrandLogo />
+            </div>
+
+            <div className="hk-template-footer__motto">HK Lopes Store em destaque no seu atendimento digital</div>
+          </div>
+        </footer>
+      ) : (
+        <footer className="hk-footer">
+          <div className="hk-footer__inner">
+            <div className="hk-footer__brand">
+              <BrandLogo size="compact" />
+              <div>
+                <strong>HK Lopes Store</strong>
+                <span>Tecnologia · Vestuário · Utilidades</span>
+              </div>
+            </div>
+
+            <div className="hk-footer__info">
+              <span>Atendimento pelo WhatsApp</span>
+              <a
+                className="hk-footer__contact"
+                href={`https://wa.me/${FOOTER_WHATSAPP_NUMBER}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true" role="presentation">
+                  <path
+                    fill="currentColor"
+                    d="M19.05 4.94A9.9 9.9 0 0 0 12 2a9.93 9.93 0 0 0-8.6 14.9L2 22l5.24-1.37A9.94 9.94 0 0 0 22 11.95a9.86 9.86 0 0 0-2.95-7.01ZM12 20.06a8.05 8.05 0 0 1-4.1-1.12l-.3-.18-3.11.81.83-3.03-.2-.31A8.07 8.07 0 1 1 12 20.06Zm4.42-5.98c-.24-.12-1.4-.69-1.62-.76-.22-.08-.38-.12-.54.12-.16.24-.62.76-.77.92-.14.16-.28.18-.52.06-.24-.12-1.02-.38-1.94-1.2-.72-.64-1.2-1.42-1.34-1.66-.14-.24-.02-.37.1-.5.11-.11.24-.28.36-.42.12-.14.16-.24.24-.4.08-.16.04-.3-.02-.42-.06-.12-.54-1.3-.74-1.78-.2-.48-.4-.42-.54-.43h-.46c-.16 0-.42.06-.64.3-.22.24-.84.82-.84 1.99 0 1.17.86 2.3.98 2.46.12.16 1.68 2.56 4.07 3.59.57.24 1.01.38 1.36.48.57.18 1.08.16 1.49.1.45-.06 1.4-.57 1.6-1.12.2-.55.2-1.02.14-1.12-.06-.1-.22-.16-.46-.28Z"
+                  />
+                </svg>
+                <strong>{FOOTER_WHATSAPP_NUMBER}</strong>
+              </a>
+            </div>
+
             <a
-              className="hk-footer__contact"
+              className="hk-footer__cta"
               href={`https://wa.me/${FOOTER_WHATSAPP_NUMBER}`}
               target="_blank"
               rel="noreferrer"
             >
-              <svg viewBox="0 0 24 24" aria-hidden="true" role="presentation">
-                <path
-                  fill="currentColor"
-                  d="M19.05 4.94A9.9 9.9 0 0 0 12 2a9.93 9.93 0 0 0-8.6 14.9L2 22l5.24-1.37A9.94 9.94 0 0 0 22 11.95a9.86 9.86 0 0 0-2.95-7.01ZM12 20.06a8.05 8.05 0 0 1-4.1-1.12l-.3-.18-3.11.81.83-3.03-.2-.31A8.07 8.07 0 1 1 12 20.06Zm4.42-5.98c-.24-.12-1.4-.69-1.62-.76-.22-.08-.38-.12-.54.12-.16.24-.62.76-.77.92-.14.16-.28.18-.52.06-.24-.12-1.02-.38-1.94-1.2-.72-.64-1.2-1.42-1.34-1.66-.14-.24-.02-.37.1-.5.11-.11.24-.28.36-.42.12-.14.16-.24.24-.4.08-.16.04-.3-.02-.42-.06-.12-.54-1.3-.74-1.78-.2-.48-.4-.42-.54-.43h-.46c-.16 0-.42.06-.64.3-.22.24-.84.82-.84 1.99 0 1.17.86 2.3.98 2.46.12.16 1.68 2.56 4.07 3.59.57.24 1.01.38 1.36.48.57.18 1.08.16 1.49.1.45-.06 1.4-.57 1.6-1.12.2-.55.2-1.02.14-1.12-.06-.1-.22-.16-.46-.28Z"
-                />
-              </svg>
-              <strong>{FOOTER_WHATSAPP_NUMBER}</strong>
+              Falar Agora
             </a>
           </div>
-
-          <a
-            className="hk-footer__cta"
-            href={`https://wa.me/${FOOTER_WHATSAPP_NUMBER}`}
-            target="_blank"
-            rel="noreferrer"
-          >
-            Falar Agora
-          </a>
-        </div>
-      </footer>
+        </footer>
+      )}
     </div>
   );
 }

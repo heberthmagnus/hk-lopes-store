@@ -1,9 +1,16 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import {
+  ReportBarChart,
+  ReportDonutChart,
+  ReportRankList,
+  ReportTrendChart,
+} from "@/components/admin-report-charts";
 import { BrandLogo } from "@/components/brand-logo";
 import {
   buildFallbackImage,
@@ -156,6 +163,33 @@ type AdminCustomersApiResponse =
   | ({ success: true; message: string; customerId?: number } & AdminStorePayload)
   | { success: false; error: string };
 
+type ReportPreset = "7d" | "30d" | "90d" | "custom";
+
+type RankedMetric = {
+  label: string;
+  value: number;
+  secondary?: string;
+};
+
+type ReportSummary = {
+  revenue: number;
+  profit: number;
+  salesCount: number;
+  ticketAverage: number;
+  discounts: number;
+  paymentFees: number;
+  recurrenceRate: number;
+  recurringCustomers: number;
+  topProductsByQuantity: RankedMetric[];
+  topProductsByRevenue: RankedMetric[];
+  topProductsByProfit: RankedMetric[];
+  topCustomersByValue: RankedMetric[];
+  topCustomersByPurchases: RankedMetric[];
+  paymentMethodRevenue: RankedMetric[];
+  dailyTrend: Array<{ label: string; revenue: number; profit: number }>;
+  birthdaysToday: AdminStorePayload["dashboard"]["birthdaysToday"];
+};
+
 async function parseApiResponse<T>(response: Response): Promise<T> {
   try {
     return (await response.json()) as T;
@@ -178,6 +212,33 @@ function getFriendlyError(error: unknown, fallback: string) {
   }
 
   return error.message;
+}
+
+function getSaoPauloDateKey(value: string) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(value));
+}
+
+function getDateDaysAgo(daysAgo: number) {
+  const date = new Date();
+  date.setDate(date.getDate() - daysAgo);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function formatDateRangeLabel(value: string) {
+  const [year, month, day] = value.split("-");
+  if (!year || !month || !day) {
+    return value;
+  }
+
+  return `${day}/${month}`;
 }
 
 function formatSaleDate(value: string) {
@@ -226,6 +287,136 @@ function formatBirthday(day: number | null, month: number | null) {
   return `${String(day).padStart(2, "0")}/${String(month).padStart(2, "0")}`;
 }
 
+function buildReportSummary(
+  salesHistory: AdminStorePayload["salesHistory"],
+  birthdaysToday: AdminStorePayload["dashboard"]["birthdaysToday"],
+  startDate: string,
+  endDate: string
+): ReportSummary {
+  const filteredSales = salesHistory.filter((sale) => {
+    const saleDate = getSaoPauloDateKey(sale.created_at);
+    return saleDate >= startDate && saleDate <= endDate;
+  });
+
+  const productByQuantity = new Map<string, { label: string; quantity: number; revenue: number; profit: number }>();
+  const customerBySpend = new Map<string, { label: string; spent: number; purchases: number; items: number }>();
+  const paymentMethods = new Map<string, number>();
+  const dailyTrendMap = new Map<string, { revenue: number; profit: number }>();
+
+  let revenue = 0;
+  let profit = 0;
+  let discounts = 0;
+  let paymentFees = 0;
+  let recurringCustomers = 0;
+
+  for (const sale of filteredSales) {
+    revenue += sale.total_amount;
+    profit += sale.total_profit;
+    discounts += sale.discount_amount;
+    paymentFees += sale.payment_fee_value;
+
+    const saleDate = getSaoPauloDateKey(sale.created_at);
+    const currentDay = dailyTrendMap.get(saleDate) ?? { revenue: 0, profit: 0 };
+    currentDay.revenue += sale.total_amount;
+    currentDay.profit += sale.total_profit;
+    dailyTrendMap.set(saleDate, currentDay);
+
+    const paymentKey = formatPaymentMethod(sale.payment_method);
+    paymentMethods.set(paymentKey, (paymentMethods.get(paymentKey) ?? 0) + sale.total_amount);
+
+    if (sale.customer_name) {
+      const customerKey = sale.customer_name.toLowerCase();
+      const currentCustomer = customerBySpend.get(customerKey) ?? {
+        label: sale.customer_name,
+        spent: 0,
+        purchases: 0,
+        items: 0,
+      };
+
+      currentCustomer.spent += sale.total_amount;
+      currentCustomer.purchases += 1;
+      currentCustomer.items += sale.item_count;
+      customerBySpend.set(customerKey, currentCustomer);
+    }
+
+    const subtotal = sale.subtotal_amount || 0;
+    for (const item of sale.items) {
+      const share = subtotal > 0 ? item.subtotal / subtotal : 0;
+      const lineRevenue = item.subtotal - sale.discount_amount * share;
+      const lineProfit = lineRevenue - sale.payment_fee_value * share - item.cost_price_snapshot * item.quantity;
+      const productKey = `${item.product_id}-${item.product_name}`;
+      const currentProduct = productByQuantity.get(productKey) ?? {
+        label: item.product_name,
+        quantity: 0,
+        revenue: 0,
+        profit: 0,
+      };
+
+      currentProduct.quantity += item.quantity;
+      currentProduct.revenue += lineRevenue;
+      currentProduct.profit += lineProfit;
+      productByQuantity.set(productKey, currentProduct);
+    }
+  }
+
+  const rankedProducts = Array.from(productByQuantity.values());
+  const rankedCustomers = Array.from(customerBySpend.values());
+  recurringCustomers = rankedCustomers.filter((customer) => customer.purchases > 1).length;
+  const uniqueCustomers = rankedCustomers.length;
+
+  const sortTop = <T,>(items: T[], getter: (item: T) => number, limit = 5) =>
+    [...items].sort((left, right) => getter(right) - getter(left)).slice(0, limit);
+
+  return {
+    revenue,
+    profit,
+    salesCount: filteredSales.length,
+    ticketAverage: filteredSales.length ? revenue / filteredSales.length : 0,
+    discounts,
+    paymentFees,
+    recurrenceRate: uniqueCustomers ? (recurringCustomers / uniqueCustomers) * 100 : 0,
+    recurringCustomers,
+    topProductsByQuantity: sortTop(rankedProducts, (item) => item.quantity).map((item) => ({
+      label: item.label,
+      value: item.quantity,
+      secondary: formatCurrency(item.revenue),
+    })),
+    topProductsByRevenue: sortTop(rankedProducts, (item) => item.revenue).map((item) => ({
+      label: item.label,
+      value: item.revenue,
+      secondary: `${formatNumber(item.quantity)} itens`,
+    })),
+    topProductsByProfit: sortTop(rankedProducts, (item) => item.profit).map((item) => ({
+      label: item.label,
+      value: item.profit,
+      secondary: formatCurrency(item.revenue),
+    })),
+    topCustomersByValue: sortTop(rankedCustomers, (item) => item.spent).map((item) => ({
+      label: item.label,
+      value: item.spent,
+      secondary: `${formatNumber(item.purchases)} compras`,
+    })),
+    topCustomersByPurchases: sortTop(rankedCustomers, (item) => item.purchases).map((item) => ({
+      label: item.label,
+      value: item.purchases,
+      secondary: formatCurrency(item.spent),
+    })),
+    paymentMethodRevenue: sortTop(
+      Array.from(paymentMethods.entries()).map(([label, value]) => ({ label, value })),
+      (item) => item.value,
+      4
+    ),
+    dailyTrend: Array.from(dailyTrendMap.entries())
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([label, values]) => ({
+        label: formatDateRangeLabel(label),
+        revenue: values.revenue,
+        profit: values.profit,
+      })),
+    birthdaysToday,
+  };
+}
+
 export function AdminDashboard({ initialPayload, userEmail }: AdminDashboardProps) {
   const router = useRouter();
   const [payload, setPayload] = useState(initialPayload);
@@ -236,6 +427,12 @@ export function AdminDashboard({ initialPayload, userEmail }: AdminDashboardProp
     initialPayload.products[0]?.variations[0]?.id ?? null
   );
   const [selectedSaleId, setSelectedSaleId] = useState<number | null>(initialPayload.salesHistory[0]?.id ?? null);
+  const [reportPreset, setReportPreset] = useState<ReportPreset>("30d");
+  const [reportPresetDraft, setReportPresetDraft] = useState<ReportPreset>("30d");
+  const [customStartDate, setCustomStartDate] = useState(getDateDaysAgo(29));
+  const [customEndDate, setCustomEndDate] = useState(getTodayInputDate());
+  const [customStartDateDraft, setCustomStartDateDraft] = useState(getDateDaysAgo(29));
+  const [customEndDateDraft, setCustomEndDateDraft] = useState(getTodayInputDate());
   const [quantity, setQuantity] = useState("1");
   const [saleForm, setSaleForm] = useState<SaleFormState>(DEFAULT_SALE_FORM);
   const [saleItems, setSaleItems] = useState<SaleDraftItem[]>([]);
@@ -319,6 +516,48 @@ export function AdminDashboard({ initialPayload, userEmail }: AdminDashboardProp
     [payload.salesHistory, selectedSaleId]
   );
   const recentSales = useMemo(() => payload.salesHistory.slice(0, 12), [payload.salesHistory]);
+  const reportDateRange = useMemo(() => {
+    if (reportPreset === "custom") {
+      const startDate = customStartDate || getDateDaysAgo(29);
+      const endDate = customEndDate || getTodayInputDate();
+
+      return {
+        startDate: startDate <= endDate ? startDate : endDate,
+        endDate: endDate >= startDate ? endDate : startDate,
+      };
+    }
+
+    const daysByPreset: Record<Exclude<ReportPreset, "custom">, number> = {
+      "7d": 6,
+      "30d": 29,
+      "90d": 89,
+    };
+
+    return {
+      startDate: getDateDaysAgo(daysByPreset[reportPreset]),
+      endDate: getTodayInputDate(),
+    };
+  }, [customEndDate, customStartDate, reportPreset]);
+  const reportSummary = useMemo(
+    () =>
+      buildReportSummary(
+        payload.salesHistory,
+        payload.dashboard.birthdaysToday,
+        reportDateRange.startDate,
+        reportDateRange.endDate
+      ),
+    [payload.dashboard.birthdaysToday, payload.salesHistory, reportDateRange.endDate, reportDateRange.startDate]
+  );
+  const recentFilteredSales = useMemo(
+    () =>
+      payload.salesHistory
+        .filter((sale) => {
+          const saleDate = getSaoPauloDateKey(sale.created_at);
+          return saleDate >= reportDateRange.startDate && saleDate <= reportDateRange.endDate;
+        })
+        .slice(0, 12),
+    [payload.salesHistory, reportDateRange.endDate, reportDateRange.startDate]
+  );
 
   function applyPayload(nextPayload: AdminStorePayload) {
     setPayload(nextPayload);
@@ -1565,128 +1804,196 @@ export function AdminDashboard({ initialPayload, userEmail }: AdminDashboardProp
   );
 
   const dashboardWorkspace = (
-    <div className="admin-workspace">
-      <div className="admin-workspace__main">
-        <section className="panel">
-          <div className="section-heading">
-            <div>
-              <p className="section-kicker">Indicadores</p>
-              <h2>Resumo do negocio</h2>
+    <div className="report-shell">
+      <section className="report-surface">
+        <section className="report-panel report-panel--top">
+          <div className="report-topbar">
+            <div className="report-title">
+              <h2>Dashboard HK Lopes Store</h2>
+              <p>Modelo completo com filtros, KPIs e gráficos prontos para virar a tela de relatórios da loja.</p>
+            </div>
+
+            <div className="report-filters-html">
+              <div className="report-filter-card">
+                <label>Período</label>
+                <select
+                  value={reportPresetDraft}
+                  onChange={(event) => setReportPresetDraft(event.target.value as ReportPreset)}
+                >
+                  <option value="7d">Últimos 7 dias</option>
+                  <option value="30d">Últimos 30 dias</option>
+                  <option value="90d">Últimos 90 dias</option>
+                  <option value="custom">Personalizado</option>
+                </select>
+              </div>
+
+              <div className="report-filter-card">
+                <label>Data inicial</label>
+                <input
+                  type="date"
+                  value={customStartDateDraft}
+                  onChange={(event) => setCustomStartDateDraft(event.target.value)}
+                />
+              </div>
+
+              <div className="report-filter-card">
+                <label>Data final</label>
+                <input
+                  type="date"
+                  value={customEndDateDraft}
+                  onChange={(event) => setCustomEndDateDraft(event.target.value)}
+                />
+              </div>
+
+              <div className="report-filter-card">
+                <label>&nbsp;</label>
+                <button
+                  className="primary-button report-apply-button"
+                  type="button"
+                  onClick={() => {
+                    setReportPreset(reportPresetDraft);
+                    setCustomStartDate(customStartDateDraft);
+                    setCustomEndDate(customEndDateDraft);
+                  }}
+                >
+                  Aplicar filtros
+                </button>
+              </div>
             </div>
           </div>
 
-          <div className="admin-dashboard-grid">
-            <article className="stat-card">
-              <span>Faturamento hoje</span>
-              <strong>{formatCurrency(payload.dashboard.revenueToday)}</strong>
-              <small>Faturamento geral {formatCurrency(payload.dashboard.revenueOverall)}</small>
+          <div className="section-title-report">Nível 1 — números obrigatórios</div>
+
+          <div className="report-kpis">
+            <article className="report-kpi">
+              <span>Faturamento</span>
+              <strong>{formatCurrency(reportSummary.revenue)}</strong>
+              <small>Receita do periodo filtrado</small>
             </article>
-            <article className="stat-card accent">
-              <span>Lucro hoje</span>
-              <strong>{formatCurrency(payload.dashboard.profitToday)}</strong>
-              <small>Lucro geral {formatCurrency(payload.dashboard.profitOverall)}</small>
+            <article className="report-kpi">
+              <span>Lucro</span>
+              <strong>{formatCurrency(reportSummary.profit)}</strong>
+              <small>Resultado liquido no periodo</small>
             </article>
-            <article className="stat-card">
-              <span>Vendas hoje</span>
-              <strong>{formatNumber(payload.dashboard.salesToday)}</strong>
-              <small>{formatNumber(payload.dashboard.salesOverall)} pedidos no total</small>
+            <article className="report-kpi">
+              <span>Ticket médio</span>
+              <strong>{formatCurrency(reportSummary.ticketAverage)}</strong>
+              <small>Faturamento dividido por vendas</small>
             </article>
-            <article className="stat-card">
-              <span>Ticket medio hoje</span>
-              <strong>{formatCurrency(payload.dashboard.ticketAverageToday)}</strong>
-              <small>Ticket geral {formatCurrency(payload.dashboard.ticketAverageOverall)}</small>
+            <article className="report-kpi">
+              <span>Quantidade de vendas</span>
+              <strong>{formatNumber(reportSummary.salesCount)}</strong>
+              <small>Pedidos aprovados no periodo</small>
             </article>
-            <article className="stat-card">
+            <article className="report-kpi">
               <span>Descontos concedidos</span>
-              <strong>{formatCurrency(payload.dashboard.totalDiscounts)}</strong>
-              <small>Impacto acumulado nas vendas</small>
+              <strong>{formatCurrency(reportSummary.discounts)}</strong>
+              <small>Impacto total dos descontos</small>
             </article>
-            <article className="stat-card">
+            <article className="report-kpi">
               <span>Taxas de pagamento</span>
-              <strong>{formatCurrency(payload.dashboard.totalPaymentFees)}</strong>
+              <strong>{formatCurrency(reportSummary.paymentFees)}</strong>
               <small>Custos de cartao e maquininha</small>
             </article>
           </div>
         </section>
 
-        <section className="panel">
-          <div className="section-heading">
-            <div>
-              <p className="section-kicker">Produtos</p>
-              <h2>Insights por produto</h2>
-            </div>
-          </div>
+        <div className="section-title-report">Nível 2 — leitura comercial</div>
 
-          <div className="insight-grid">
-            <article className="insight-card">
-              <div className="insight-card__header">
-                <strong>Top 5 por quantidade</strong>
-                <span>Itens vendidos</span>
-              </div>
-              {!payload.dashboard.topProductsByQuantity.length ? (
-                <div className="empty-state">Sem vendas para analisar ainda.</div>
-              ) : (
-                <div className="metric-list">
-                  {payload.dashboard.topProductsByQuantity.map((product, index) => (
-                    <article key={`qty-${product.product_id}-${index}`} className="metric-row">
-                      <div className="metric-row__copy">
-                        <strong>{product.product_name}</strong>
-                        <span>{formatCurrency(product.revenue)} em receita</span>
-                      </div>
-                      <strong>{formatNumber(product.quantity_sold)}</strong>
-                    </article>
-                  ))}
-                </div>
-              )}
-            </article>
-
-            <article className="insight-card">
-              <div className="insight-card__header">
-                <strong>Top 5 por faturamento</strong>
-                <span>Receita por produto</span>
-              </div>
-              {!payload.dashboard.topProductsByRevenue.length ? (
-                <div className="empty-state">Sem vendas para analisar ainda.</div>
-              ) : (
-                <div className="metric-list">
-                  {payload.dashboard.topProductsByRevenue.map((product, index) => (
-                    <article key={`revenue-${product.product_id}-${index}`} className="metric-row">
-                      <div className="metric-row__copy">
-                        <strong>{product.product_name}</strong>
-                        <span>{formatNumber(product.quantity_sold)} unidades vendidas</span>
-                      </div>
-                      <strong>{formatCurrency(product.revenue)}</strong>
-                    </article>
-                  ))}
-                </div>
-              )}
-            </article>
-
-            <article className="insight-card">
-              <div className="insight-card__header">
-                <strong>Top 5 por lucro</strong>
-                <span>Produtos mais rentaveis</span>
-              </div>
-              {!payload.dashboard.topProductsByProfit.length ? (
-                <div className="empty-state">Sem vendas para analisar ainda.</div>
-              ) : (
-                <div className="metric-list">
-                  {payload.dashboard.topProductsByProfit.map((product, index) => (
-                    <article key={`profit-${product.product_id}-${index}`} className="metric-row">
-                      <div className="metric-row__copy">
-                        <strong>{product.product_name}</strong>
-                        <span>{formatCurrency(product.revenue)} em receita</span>
-                      </div>
-                      <strong>{formatCurrency(product.profit)}</strong>
-                    </article>
-                  ))}
-                </div>
-              )}
-            </article>
+        <section className="report-panel">
+          <div className="report-html-grid">
+            <ReportTrendChart
+              title="Faturamento por dia"
+              subtitle="Evolução diária da receita no período filtrado."
+              points={reportSummary.dailyTrend.map((point) => ({ ...point, profit: 0 }))}
+              formatter={formatCurrency}
+              mode="line"
+              seriesLabel="Faturamento"
+            />
+            <ReportTrendChart
+              title="Lucro por dia"
+              subtitle="Ajuda a entender o que realmente sobrou no caixa."
+              points={reportSummary.dailyTrend.map((point) => ({ ...point, revenue: point.profit, profit: 0 }))}
+              formatter={formatCurrency}
+              mode="bar"
+              seriesLabel="Lucro"
+            />
+            <ReportRankList
+              title="Top produtos por quantidade"
+              subtitle="O que mais gira em volume."
+              items={reportSummary.topProductsByQuantity.map((item) => ({
+                label: item.label,
+                primary: `${item.value}`,
+                secondary: `${item.value} unidades vendidas`,
+              }))}
+            />
+            <ReportRankList
+              title="Top produtos por faturamento"
+              subtitle="O que mais gera receita."
+              items={reportSummary.topProductsByRevenue.map((item) => ({
+                label: item.label,
+                primary: formatCurrency(item.value),
+                secondary: `${formatCurrency(item.value)} em faturamento`,
+              }))}
+            />
+            <ReportRankList
+              title="Top clientes por valor"
+              subtitle="Quem mais compra em faturamento."
+              items={reportSummary.topCustomersByValue.map((item) => ({
+                label: item.label,
+                primary: formatCurrency(item.value),
+                secondary: item.secondary ?? "",
+              }))}
+            />
+            <ReportRankList
+              title="Top clientes por compras"
+              subtitle="Quem mais retorna para comprar."
+              items={reportSummary.topCustomersByPurchases.map((item) => ({
+                label: item.label,
+                primary: `${item.value}`,
+                secondary: `${item.value} compras registradas`,
+              }))}
+            />
           </div>
         </section>
 
-        <section className="panel">
+        <div className="section-title-report">Nível 3 — inteligência</div>
+
+        <section className="report-panel">
+          <div className="report-html-grid">
+            <ReportBarChart
+              title="Margem/Lucro por produto"
+              subtitle="Mostra o que vale mais a pena vender."
+              items={reportSummary.topProductsByProfit}
+              formatter={formatCurrency}
+            />
+            <ReportDonutChart
+              title="Descontos x taxas"
+              subtitle="Quanto você deixou na mesa por desconto e maquininha."
+              items={[
+                { label: "Descontos", value: reportSummary.discounts },
+                { label: "Taxas", value: reportSummary.paymentFees },
+              ]}
+              formatter={formatCurrency}
+              variant="donut"
+            />
+            <ReportDonutChart
+              title="Receita por forma de pagamento"
+              subtitle="Distribuição por Pix, dinheiro, débito e crédito."
+              items={reportSummary.paymentMethodRevenue}
+              formatter={formatCurrency}
+              variant="pie"
+            />
+            <ReportBarChart
+              title="Recorrência de clientes"
+              subtitle="Quantidade de compras por cliente no período."
+              items={reportSummary.topCustomersByPurchases}
+              formatter={formatNumber}
+            />
+          </div>
+        </section>
+
+        <section className="report-panel">
           <div className="section-heading">
             <div>
               <p className="section-kicker">Aniversariantes</p>
@@ -1694,11 +2001,11 @@ export function AdminDashboard({ initialPayload, userEmail }: AdminDashboardProp
             </div>
           </div>
 
-          {!payload.dashboard.birthdaysToday.length ? (
+          {!reportSummary.birthdaysToday.length ? (
             <div className="empty-state">Nenhum aniversariante cadastrado para hoje.</div>
           ) : (
             <div className="metric-list">
-              {payload.dashboard.birthdaysToday.map((customer) => {
+              {reportSummary.birthdaysToday.map((customer) => {
                 const whatsappLink = buildWhatsAppLink(
                   customer.phone,
                   "Olá, passando para te desejar um feliz aniversário! 🎉"
@@ -1729,49 +2036,20 @@ export function AdminDashboard({ initialPayload, userEmail }: AdminDashboardProp
           )}
         </section>
 
-        <section className="panel">
-          <div className="section-heading">
-            <div>
-              <p className="section-kicker">Clientes</p>
-              <h2>Melhores clientes</h2>
-            </div>
-          </div>
-
-          {!payload.dashboard.topCustomers.length ? (
-            <div className="empty-state">Cadastre clientes e registre vendas para acompanhar recorrencia.</div>
-          ) : (
-            <div className="metric-list">
-              {payload.dashboard.topCustomers.map((customer, index) => (
-                <article key={`${customer.customer_name}-${index}`} className="metric-row">
-                  <div className="metric-row__copy">
-                    <strong>{customer.customer_name}</strong>
-                    <span>
-                      {formatNumber(customer.purchase_count)} compras | {formatNumber(customer.items_purchased)} itens
-                    </span>
-                  </div>
-                  <strong>{formatCurrency(customer.total_spent)}</strong>
-                </article>
-              ))}
-            </div>
-          )}
-        </section>
-      </div>
-
-      <aside className="sidebar">
-        <section className="panel">
+        <section className="report-panel">
           <div className="section-heading">
             <div>
               <p className="section-kicker">Historico de vendas</p>
               <h2>Pedidos recentes</h2>
             </div>
-            <div className="stats-inline">{formatNumber(payload.salesHistory.length)} vendas</div>
+            <div className="stats-inline">{formatNumber(recentFilteredSales.length)} vendas visiveis</div>
           </div>
 
           <div className="sales-history">
-            {!recentSales.length ? (
-              <div className="empty-state">Nenhuma venda registrada ainda.</div>
+            {!recentFilteredSales.length ? (
+              <div className="empty-state">Nenhuma venda encontrada neste periodo.</div>
             ) : (
-              recentSales.map((sale) => (
+              recentFilteredSales.map((sale) => (
                 <button
                   key={sale.id}
                   className={`history-card history-card--interactive ${selectedSale?.id === sale.id ? "selected" : ""}`}
@@ -1796,7 +2074,7 @@ export function AdminDashboard({ initialPayload, userEmail }: AdminDashboardProp
           </div>
         </section>
 
-        <section className="panel">
+        <section className="report-panel">
           <div className="section-heading">
             <div>
               <p className="section-kicker">Detalhes</p>
@@ -1867,106 +2145,128 @@ export function AdminDashboard({ initialPayload, userEmail }: AdminDashboardProp
             </div>
           )}
         </section>
-      </aside>
+      </section>
     </div>
   );
 
   return (
-    <div className="app-shell">
-      <header className="hero">
-        <div>
-          <div className="hero-brand">
-            <BrandLogo size="compact" priority />
-            <div className="hero-brand-copy">
-              <p className="eyebrow">HK Lopes Store</p>
-              <h1>{APP_NAME} Admin</h1>
-              <p className="hero-copy">
-                Gestao de catalogo, controle de estoque, vendas presenciais com multiplos itens e operacao interna em um painel mais organizado.
-              </p>
-              <p className="hero-meta">{userEmail ? `Logado como ${userEmail}` : "Area autenticada"}</p>
+    <>
+      <header className="hk-template-header">
+        <div className="hk-template-header__topbar">
+          <div className="hk-template-header__topbar-inner">
+            <div className="hk-template-header__brand">
+              <BrandLogo priority />
+              <div className="hk-template-header__brand-copy">
+                <strong>{APP_NAME}</strong>
+                <span>Area administrativa da HK Lopes Store</span>
+              </div>
+            </div>
+
+            <div className="hk-template-header__actions">
+              <button className="hk-template-header__admin" type="button" onClick={handleLogout}>
+                Sair
+              </button>
             </div>
           </div>
         </div>
 
-        <div className="hero-actions">
-          <button className="ghost-button" type="button" onClick={handleLogout}>
-            Sair
-          </button>
+        <div className="hk-template-header__menu">
+          <nav className="hk-template-header__menu-inner" aria-label="Menu administrativo">
+            <Link href="/">Início</Link>
+            <button
+              aria-current={activeSection === "dashboard" ? "page" : undefined}
+              type="button"
+              onClick={() => setActiveSection("dashboard")}
+            >
+              Relatórios
+            </button>
+            <button
+              aria-current={activeSection === "products" ? "page" : undefined}
+              type="button"
+              onClick={() => setActiveSection("products")}
+            >
+              Produtos
+            </button>
+            <button
+              aria-current={activeSection === "sales" ? "page" : undefined}
+              type="button"
+              onClick={() => setActiveSection("sales")}
+            >
+              Vendas
+            </button>
+            <button
+              aria-current={activeSection === "customers" ? "page" : undefined}
+              type="button"
+              onClick={() => setActiveSection("customers")}
+            >
+              Clientes
+            </button>
+          </nav>
         </div>
       </header>
 
-      <section className="stats-grid">
-        <article className="stat-card">
-          <span>Produtos</span>
-          <strong>{formatNumber(payload.summary.productCount)}</strong>
-          <small>{formatNumber(payload.summary.variationCount)} variacoes</small>
-        </article>
-        <article className="stat-card">
-          <span>Estoque</span>
-          <strong>{formatNumber(payload.summary.totalStock)}</strong>
-          <small>itens disponiveis</small>
-        </article>
-        <article className="stat-card">
-          <span>Vendas</span>
-          <strong>{formatNumber(payload.summary.salesCount)}</strong>
-          <small>{formatCurrency(payload.summary.totalRevenue)}</small>
-        </article>
-        <article className="stat-card accent">
-          <span>Lucro</span>
-          <strong>{formatCurrency(payload.summary.totalProfit)}</strong>
-          <small>calculado por receita - custo</small>
-        </article>
-      </section>
+      <div className="app-shell">
+        <section className="stats-grid">
+          <article className="stat-card">
+            <span>Produtos</span>
+            <strong>{formatNumber(payload.summary.productCount)}</strong>
+            <small>{formatNumber(payload.summary.variationCount)} variacoes</small>
+          </article>
+          <article className="stat-card">
+            <span>Estoque</span>
+            <strong>{formatNumber(payload.summary.totalStock)}</strong>
+            <small>itens disponiveis</small>
+          </article>
+          <article className="stat-card">
+            <span>Vendas</span>
+            <strong>{formatNumber(payload.summary.salesCount)}</strong>
+            <small>{formatCurrency(payload.summary.totalRevenue)}</small>
+          </article>
+          <article className="stat-card accent">
+            <span>Lucro</span>
+            <strong>{formatCurrency(payload.summary.totalProfit)}</strong>
+            <small>calculado por receita - custo</small>
+          </article>
+        </section>
 
-      <section className="admin-section-bar">
-        <div className="admin-section-bar__tabs">
-          <button
-            className={`admin-section-tab ${activeSection === "dashboard" ? "active" : ""}`}
-            type="button"
-            onClick={() => setActiveSection("dashboard")}
-          >
-            Relatorios
-          </button>
-          <button
-            className={`admin-section-tab ${activeSection === "products" ? "active" : ""}`}
-            type="button"
-            onClick={() => setActiveSection("products")}
-          >
-            Produtos
-          </button>
-          <button
-            className={`admin-section-tab ${activeSection === "sales" ? "active" : ""}`}
-            type="button"
-            onClick={() => setActiveSection("sales")}
-          >
-            Vendas
-          </button>
-          <button
-            className={`admin-section-tab ${activeSection === "customers" ? "active" : ""}`}
-            type="button"
-            onClick={() => setActiveSection("customers")}
-          >
-            Clientes
-          </button>
+        <section className="admin-section-bar">
+          <p className="admin-section-bar__hint">
+            {activeSection === "dashboard"
+              ? "Acompanhe faturamento, lucro, descontos, taxas, produtos mais fortes e o historico recente de vendas."
+              : activeSection === "products"
+              ? "Gerencie produtos, precos, estoque, categorias e status em uma area dedicada."
+              : activeSection === "sales"
+                ? "Monte uma venda com varios itens, escolha ou cadastre rapidamente um cliente e finalize com um resumo claro."
+                : "Cadastre clientes de forma simples para agilizar o atendimento e apoiar relatorios futuros."}
+          </p>
+        </section>
+
+        {activeSection === "dashboard"
+          ? dashboardWorkspace
+          : activeSection === "products"
+          ? productsWorkspace
+          : activeSection === "sales"
+            ? salesWorkspace
+            : customersWorkspace}
+      </div>
+
+      <footer className="hk-template-footer">
+        <div className="hk-template-footer__inner">
+          <div>
+            <h3 className="hk-template-footer__title">HK Lopes Store</h3>
+            <div className="hk-template-footer__info">
+              <div>Painel administrativo para produtos, vendas, clientes e relatórios.</div>
+              <div>Operacao interna com acesso autenticado.</div>
+            </div>
+          </div>
+
+          <div className="hk-template-footer__logo">
+            <BrandLogo />
+          </div>
+
+          <div className="hk-template-footer__motto">Gestao centralizada da HK Lopes Store</div>
         </div>
-        <p className="admin-section-bar__hint">
-          {activeSection === "dashboard"
-            ? "Acompanhe faturamento, lucro, descontos, taxas, produtos mais fortes e o historico recente de vendas."
-            : activeSection === "products"
-            ? "Gerencie produtos, precos, estoque, categorias e status em uma area dedicada."
-            : activeSection === "sales"
-              ? "Monte uma venda com varios itens, escolha ou cadastre rapidamente um cliente e finalize com um resumo claro."
-              : "Cadastre clientes de forma simples para agilizar o atendimento e apoiar relatorios futuros."}
-        </p>
-      </section>
-
-      {activeSection === "dashboard"
-        ? dashboardWorkspace
-        : activeSection === "products"
-        ? productsWorkspace
-        : activeSection === "sales"
-          ? salesWorkspace
-          : customersWorkspace}
-    </div>
+      </footer>
+    </>
   );
 }

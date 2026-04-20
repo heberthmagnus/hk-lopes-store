@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 
@@ -47,49 +48,98 @@ export function LoginForm() {
   }
 
   return (
-    <div className="app-shell auth-shell">
-      <section className="panel auth-panel">
-        <div className="hero-brand">
-          <BrandLogo priority />
-          <div className="hero-brand-copy">
-            <p className="eyebrow">HK Lopes Store</p>
-            <h1>{APP_NAME}</h1>
-            <p className="hero-copy">
-              Entre com seu usuario do Supabase Auth para acessar a area administrativa.
-            </p>
+    <>
+      <header className="hk-template-header">
+        <div className="hk-template-header__topbar">
+          <div className="hk-template-header__topbar-inner">
+            <div className="hk-template-header__brand">
+              <BrandLogo priority />
+              <div className="hk-template-header__brand-copy">
+                <strong>{APP_NAME}</strong>
+                <span>Area de acesso administrativo</span>
+              </div>
+            </div>
+
+            <div className="hk-template-header__actions">
+              <Link className="hk-template-header__admin" href="/">
+                Início
+              </Link>
+            </div>
           </div>
         </div>
 
-        <form className="stack" onSubmit={handleSubmit}>
-          <label>
-            <span>E-mail</span>
-            <input
-              type="email"
-              placeholder="voce@empresa.com"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              required
-            />
-          </label>
+        <div className="hk-template-header__menu">
+          <nav className="hk-template-header__menu-inner" aria-label="Menu público">
+            <Link className="active" href="/">
+              Início
+            </Link>
+            <Link href="/login">Admin</Link>
+          </nav>
+        </div>
+      </header>
 
-          <label>
-            <span>Senha</span>
-            <input
-              type="password"
-              placeholder="Sua senha"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              required
-            />
-          </label>
+      <div className="app-shell auth-shell">
+        <section className="panel auth-panel">
+          <div className="hero-brand">
+            <BrandLogo priority />
+            <div className="hero-brand-copy">
+              <p className="eyebrow">HK Lopes Store</p>
+              <h1>{APP_NAME}</h1>
+              <p className="hero-copy">
+                Entre com seu usuario do Supabase Auth para acessar a area administrativa.
+              </p>
+            </div>
+          </div>
 
-          <button className="primary-button" type="submit" disabled={submitting}>
-            {submitting ? "Entrando..." : "Entrar"}
-          </button>
-        </form>
+          <form className="stack" onSubmit={handleSubmit}>
+            <label>
+              <span>E-mail</span>
+              <input
+                type="email"
+                placeholder="voce@empresa.com"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                required
+              />
+            </label>
 
-        <p className={`feedback ${error ? "error" : ""}`}>{feedback}</p>
-      </section>
-    </div>
+            <label>
+              <span>Senha</span>
+              <input
+                type="password"
+                placeholder="Sua senha"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                required
+              />
+            </label>
+
+            <button className="primary-button" type="submit" disabled={submitting}>
+              {submitting ? "Entrando..." : "Entrar"}
+            </button>
+          </form>
+
+          <p className={`feedback ${error ? "error" : ""}`}>{feedback}</p>
+        </section>
+      </div>
+
+      <footer className="hk-template-footer">
+        <div className="hk-template-footer__inner">
+          <div>
+            <h3 className="hk-template-footer__title">HK Lopes Store</h3>
+            <div className="hk-template-footer__info">
+              <div>Acesso administrativo autenticado.</div>
+              <div>Login seguro para operar produtos, vendas, clientes e relatórios.</div>
+            </div>
+          </div>
+
+          <div className="hk-template-footer__logo">
+            <BrandLogo />
+          </div>
+
+          <div className="hk-template-footer__motto">Controle interno da HK Lopes Store</div>
+        </div>
+      </footer>
+    </>
   );
 }

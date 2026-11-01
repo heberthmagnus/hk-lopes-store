@@ -1,9 +1,8 @@
 "use client";
 
 import Image from "next/image";
-import Link from "next/link";
 import { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import {
   ReportBarChart,
@@ -11,7 +10,8 @@ import {
   ReportRankList,
   ReportTrendChart,
 } from "@/components/admin-report-charts";
-import { BrandLogo } from "@/components/brand-logo";
+import { AdminLayout, type AdminSection } from "@/components/admin-navigation";
+import { AdminV2Workspace, pageNames } from "@/components/admin-v2/workspace";
 import {
   buildFallbackImage,
   formatCurrency,
@@ -22,7 +22,6 @@ import {
 import { parseVariationLines } from "@/lib/parse";
 import type { AdminProduct, AdminStorePayload, CustomerSource, ProductInput } from "@/types/store";
 
-const APP_NAME = process.env.NEXT_PUBLIC_APP_NAME ?? "HK Lopes Store";
 const NEW_CUSTOMER_VALUE = "__new__";
 
 type ProductFormState = {
@@ -420,7 +419,10 @@ function buildReportSummary(
 export function AdminDashboard({ initialPayload, userEmail }: AdminDashboardProps) {
   const router = useRouter();
   const [payload, setPayload] = useState(initialPayload);
-  const [activeSection, setActiveSection] = useState<"dashboard" | "products" | "sales" | "customers">("dashboard");
+  const searchParams = useSearchParams();
+  const requestedSection = searchParams.get("secao");
+  const activeSection: AdminSection = requestedSection && Object.hasOwn(pageNames, requestedSection) ? requestedSection as AdminSection : "dashboard";
+  const setActiveSection = (section: AdminSection) => router.push(`/admin?secao=${section}`);
   const [search, setSearch] = useState("");
   const [selectedProductId, setSelectedProductId] = useState<number | null>(initialPayload.products[0]?.id ?? null);
   const [selectedVariationId, setSelectedVariationId] = useState<number | null>(
@@ -558,6 +560,9 @@ export function AdminDashboard({ initialPayload, userEmail }: AdminDashboardProp
         .slice(0, 12),
     [payload.salesHistory, reportDateRange.endDate, reportDateRange.startDate]
   );
+  const reportMargin = reportSummary.revenue > 0 ? (reportSummary.profit / reportSummary.revenue) * 100 : 0;
+  const reportTopProduct = reportSummary.topProductsByRevenue[0];
+  const reportRangeLabel = `${formatDateRangeLabel(reportDateRange.startDate)} — ${formatDateRangeLabel(reportDateRange.endDate)}`;
 
   function applyPayload(nextPayload: AdminStorePayload) {
     setPayload(nextPayload);
@@ -1809,8 +1814,9 @@ export function AdminDashboard({ initialPayload, userEmail }: AdminDashboardProp
         <section className="report-panel report-panel--top">
           <div className="report-topbar">
             <div className="report-title">
-              <h2>Dashboard HK Lopes Store</h2>
-              <p>Modelo completo com filtros, KPIs e gráficos prontos para virar a tela de relatórios da loja.</p>
+              <span className="report-title__eyebrow">Central de inteligência</span>
+              <h2>Visão executiva</h2>
+              <p>Transforme as vendas da HK Lopes Store em decisões mais rápidas, com clareza sobre receita, lucro e clientes.</p>
             </div>
 
             <div className="report-filters-html">
@@ -1862,7 +1868,35 @@ export function AdminDashboard({ initialPayload, userEmail }: AdminDashboardProp
             </div>
           </div>
 
-          <div className="section-title-report">Nível 1 — números obrigatórios</div>
+          <div className="report-context">
+            <span>Período analisado</span>
+            <strong>{reportRangeLabel}</strong>
+            <i />
+            <span>{formatNumber(reportSummary.salesCount)} vendas registradas</span>
+          </div>
+
+          <section className="report-insight" aria-label="Resumo inteligente do período">
+            <div className="report-insight__signal" aria-hidden="true">✦</div>
+            <div>
+              <span className="report-insight__eyebrow">Leitura inteligente</span>
+              <strong>
+                {reportSummary.salesCount
+                  ? `Margem de ${reportMargin.toFixed(1)}% no período${reportTopProduct ? `, liderada por ${reportTopProduct.label}` : ""}.`
+                  : "Registre as primeiras vendas para gerar insights da operação."}
+              </strong>
+              <p>
+                {reportSummary.salesCount
+                  ? `Cada venda teve ticket médio de ${formatCurrency(reportSummary.ticketAverage)}. Use os gráficos abaixo para identificar onde vale acelerar as vendas.`
+                  : "Assim que houver movimentação, este painel mostrará desempenho, produtos fortes e comportamento dos clientes."}
+              </p>
+            </div>
+            <div className="report-insight__metric">
+              <span>Margem líquida</span>
+              <strong>{reportMargin.toFixed(1)}%</strong>
+            </div>
+          </section>
+
+          <div className="section-title-report">Indicadores principais</div>
 
           <div className="report-kpis">
             <article className="report-kpi">
@@ -1898,7 +1932,7 @@ export function AdminDashboard({ initialPayload, userEmail }: AdminDashboardProp
           </div>
         </section>
 
-        <div className="section-title-report">Nível 2 — leitura comercial</div>
+        <div className="section-title-report">Tendências e oportunidades</div>
 
         <section className="report-panel">
           <div className="report-html-grid">
@@ -1957,7 +1991,7 @@ export function AdminDashboard({ initialPayload, userEmail }: AdminDashboardProp
           </div>
         </section>
 
-        <div className="section-title-report">Nível 3 — inteligência</div>
+        <div className="section-title-report">Composição do resultado</div>
 
         <section className="report-panel">
           <div className="report-html-grid">
@@ -2150,123 +2184,11 @@ export function AdminDashboard({ initialPayload, userEmail }: AdminDashboardProp
   );
 
   return (
-    <>
-      <header className="hk-template-header">
-        <div className="hk-template-header__topbar">
-          <div className="hk-template-header__topbar-inner">
-            <div className="hk-template-header__brand">
-              <BrandLogo priority />
-              <div className="hk-template-header__brand-copy">
-                <strong>{APP_NAME}</strong>
-                <span>Area administrativa da HK Lopes Store</span>
-              </div>
-            </div>
-
-            <div className="hk-template-header__actions">
-              <button className="hk-template-header__admin" type="button" onClick={handleLogout}>
-                Sair
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <div className="hk-template-header__menu">
-          <nav className="hk-template-header__menu-inner" aria-label="Menu administrativo">
-            <Link href="/">Início</Link>
-            <button
-              aria-current={activeSection === "dashboard" ? "page" : undefined}
-              type="button"
-              onClick={() => setActiveSection("dashboard")}
-            >
-              Relatórios
-            </button>
-            <button
-              aria-current={activeSection === "products" ? "page" : undefined}
-              type="button"
-              onClick={() => setActiveSection("products")}
-            >
-              Produtos
-            </button>
-            <button
-              aria-current={activeSection === "sales" ? "page" : undefined}
-              type="button"
-              onClick={() => setActiveSection("sales")}
-            >
-              Vendas
-            </button>
-            <button
-              aria-current={activeSection === "customers" ? "page" : undefined}
-              type="button"
-              onClick={() => setActiveSection("customers")}
-            >
-              Clientes
-            </button>
-          </nav>
-        </div>
-      </header>
-
-      <div className="app-shell">
-        <section className="stats-grid">
-          <article className="stat-card">
-            <span>Produtos</span>
-            <strong>{formatNumber(payload.summary.productCount)}</strong>
-            <small>{formatNumber(payload.summary.variationCount)} variacoes</small>
-          </article>
-          <article className="stat-card">
-            <span>Estoque</span>
-            <strong>{formatNumber(payload.summary.totalStock)}</strong>
-            <small>itens disponiveis</small>
-          </article>
-          <article className="stat-card">
-            <span>Vendas</span>
-            <strong>{formatNumber(payload.summary.salesCount)}</strong>
-            <small>{formatCurrency(payload.summary.totalRevenue)}</small>
-          </article>
-          <article className="stat-card accent">
-            <span>Lucro</span>
-            <strong>{formatCurrency(payload.summary.totalProfit)}</strong>
-            <small>calculado por receita - custo</small>
-          </article>
-        </section>
-
-        <section className="admin-section-bar">
-          <p className="admin-section-bar__hint">
-            {activeSection === "dashboard"
-              ? "Acompanhe faturamento, lucro, descontos, taxas, produtos mais fortes e o historico recente de vendas."
-              : activeSection === "products"
-              ? "Gerencie produtos, precos, estoque, categorias e status em uma area dedicada."
-              : activeSection === "sales"
-                ? "Monte uma venda com varios itens, escolha ou cadastre rapidamente um cliente e finalize com um resumo claro."
-                : "Cadastre clientes de forma simples para agilizar o atendimento e apoiar relatorios futuros."}
-          </p>
-        </section>
-
-        {activeSection === "dashboard"
-          ? dashboardWorkspace
-          : activeSection === "products"
-          ? productsWorkspace
-          : activeSection === "sales"
-            ? salesWorkspace
-            : customersWorkspace}
-      </div>
-
-      <footer className="hk-template-footer">
-        <div className="hk-template-footer__inner">
-          <div>
-            <h3 className="hk-template-footer__title">HK Lopes Store</h3>
-            <div className="hk-template-footer__info">
-              <div>Painel administrativo para produtos, vendas, clientes e relatórios.</div>
-              <div>Operacao interna com acesso autenticado.</div>
-            </div>
-          </div>
-
-          <div className="hk-template-footer__logo">
-            <BrandLogo />
-          </div>
-
-          <div className="hk-template-footer__motto">Gestao centralizada da HK Lopes Store</div>
-        </div>
-      </footer>
-    </>
+    <AdminLayout active={activeSection} onNavigate={() => {}} onLogout={handleLogout}>
+      <AdminV2Workspace key={activeSection} section={activeSection} payload={payload} userEmail={userEmail}
+        forms={{ sales: salesWorkspace, products: productsWorkspace, customers: customersWorkspace }}
+        editProduct={editProduct} editCustomer={editCustomer} resetProduct={resetForm} resetCustomer={resetCustomerForm}
+        toggleProduct={handleToggleProduct} />
+    </AdminLayout>
   );
 }

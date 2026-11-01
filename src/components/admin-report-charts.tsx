@@ -41,21 +41,54 @@ type ReportRankListProps = {
   items: Array<{ label: string; primary: string; secondary: string }>;
 };
 
-function buildPolyline(values: number[], width: number, height: number, padding: number) {
+function getPlotPoints(values: number[], width: number, height: number, padding: number) {
   if (!values.length) {
-    return "";
+    return [];
   }
 
   const maxValue = Math.max(...values, 1);
   const stepX = values.length === 1 ? 0 : (width - padding * 2) / (values.length - 1);
 
-  return values
-    .map((value, index) => {
-      const x = padding + stepX * index;
-      const y = height - padding - (value / maxValue) * (height - padding * 2);
-      return `${x},${y}`;
-    })
-    .join(" ");
+  return values.map((value, index) => ({
+    x: padding + stepX * index,
+    y: height - padding - (value / maxValue) * (height - padding * 2),
+  }));
+}
+
+function buildSmoothPath(values: number[], width: number, height: number, padding: number) {
+  const points = getPlotPoints(values, width, height, padding);
+
+  if (!points.length) {
+    return "";
+  }
+
+  if (points.length === 1) {
+    return `M ${points[0].x} ${points[0].y}`;
+  }
+
+  return points.reduce((path, point, index) => {
+    if (index === 0) {
+      return `M ${point.x} ${point.y}`;
+    }
+
+    const previous = points[index - 1];
+    const midpointX = (previous.x + point.x) / 2;
+    return `${path} Q ${previous.x} ${previous.y} ${midpointX} ${(previous.y + point.y) / 2}`;
+  }, "") + ` T ${points[points.length - 1].x} ${points[points.length - 1].y}`;
+}
+
+function buildAreaPath(values: number[], width: number, height: number, padding: number) {
+  const points = getPlotPoints(values, width, height, padding);
+
+  if (!points.length) {
+    return "";
+  }
+
+  const line = buildSmoothPath(values, width, height, padding);
+  const baseline = height - padding;
+  const endX = points[points.length - 1].x;
+
+  return `${line} L ${endX} ${baseline} L ${points[0].x} ${baseline} Z`;
 }
 
 export function ReportBarChart({ title, subtitle, items, formatter }: ReportBarChartProps) {
@@ -109,6 +142,7 @@ export function ReportTrendChart({
   const padding = 20;
   const chartHeight = height - padding * 2;
   const stepX = safePoints.length <= 1 ? 0 : (width - padding * 2) / (safePoints.length - 1);
+  const gradientId = `report-area-${title.toLowerCase().replace(/[^a-z0-9]/g, "-")}`;
 
   return (
     <section className="report-chart-card">
@@ -123,6 +157,21 @@ export function ReportTrendChart({
         <>
           <div className="report-trend-chart">
             <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={title}>
+              {mode === "line" ? (
+                <defs>
+                  <linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1">
+                    <stop offset="0%" stopColor="#3ea0ff" stopOpacity="0.3" />
+                    <stop offset="100%" stopColor="#3ea0ff" stopOpacity="0" />
+                  </linearGradient>
+                  <filter id={`${gradientId}-glow`} x="-30%" y="-30%" width="160%" height="160%">
+                    <feGaussianBlur stdDeviation="4" result="blur" />
+                    <feMerge>
+                      <feMergeNode in="blur" />
+                      <feMergeNode in="SourceGraphic" />
+                    </feMerge>
+                  </filter>
+                </defs>
+              ) : null}
               {[0, 1, 2, 3].map((step) => {
                 const y = padding + ((height - padding * 2) / 3) * step;
                 const value = maxValue - (maxValue / 3) * step;
@@ -145,9 +194,11 @@ export function ReportTrendChart({
 
               {mode === "line" ? (
                 <>
-                  <polyline
-                    points={buildPolyline(revenueValues, width, height, padding)}
+                  <path d={buildAreaPath(revenueValues, width, height, padding)} className="report-trend-chart__area" fill={`url(#${gradientId})`} />
+                  <path
+                    d={buildSmoothPath(revenueValues, width, height, padding)}
                     className="report-trend-chart__line report-trend-chart__line--revenue"
+                    filter={`url(#${gradientId}-glow)`}
                   />
                   {revenueValues.map((value, index) => {
                     const x = padding + stepX * index;
@@ -247,14 +298,11 @@ export function ReportDonutChart({
               );
             })}
             <text x="100" y="95" textAnchor="middle" className="report-donut__total-label">
-              Total
+              {variant === "pie" ? "Receita" : "Total"}
             </text>
-            {variant === "donut" ? (
-              <text x="100" y="118" textAnchor="middle" className="report-donut__total-value">
-                {formatter(total)}
-              </text>
-            ) : null}
-            {variant === "pie" ? <circle cx="100" cy="100" r="42" fill="#ffffff" /> : null}
+            <text x="100" y="118" textAnchor="middle" className="report-donut__total-value">
+              {formatter(total)}
+            </text>
           </svg>
 
           <div className="report-donut__legend">
@@ -266,7 +314,9 @@ export function ReportDonutChart({
                 />
                 <div>
                   <strong>{item.label}</strong>
-                  <span>{formatter(item.value)}</span>
+                  <span>
+                    {formatter(item.value)} · {total ? Math.round((item.value / total) * 100) : 0}%
+                  </span>
                 </div>
               </div>
             ))}

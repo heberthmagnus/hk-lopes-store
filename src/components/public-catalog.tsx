@@ -241,6 +241,16 @@ export function PublicCatalog({ products, variant = "default" }: PublicCatalogPr
                     value={search}
                     onChange={(event) => setSearch(event.target.value)}
                   />
+                  {search ? (
+                    <button
+                      className="hk-template-header__search-clear"
+                      type="button"
+                      onClick={() => setSearch("")}
+                      aria-label="Limpar busca"
+                    >
+                      ×
+                    </button>
+                  ) : null}
                   <span className="hk-template-header__search-button" aria-hidden="true">
                     <svg viewBox="0 0 24 24" className="hk-template-header__search-icon" role="presentation">
                       <path
@@ -445,7 +455,10 @@ export function PublicCatalog({ products, variant = "default" }: PublicCatalogPr
             <h2>
               Todos os <span>Produtos</span>
             </h2>
-            <p>{filteredProducts.length} produtos disponíveis</p>
+            <p aria-live="polite">
+              {filteredProducts.length} {filteredProducts.length === 1 ? "produto disponível" : "produtos disponíveis"}
+              {search ? ` para “${search.trim()}”` : ""}
+            </p>
           </div>
         </div>
 
@@ -496,8 +509,10 @@ export function PublicCatalog({ products, variant = "default" }: PublicCatalogPr
                   </div>
 
                   <div className="hk-product-card__body">
+                    <span className="hk-product-card__category">{product.category_name}</span>
                     <strong className="hk-product-card__price">{buildPriceLabel(product)}</strong>
                     <h3>{product.name}</h3>
+                    {product.description ? <p>{product.description}</p> : null}
                     <div className="hk-product-card__footer">
                       <a
                         className="hk-product-card__cta"
@@ -574,6 +589,23 @@ export function PublicCatalog({ products, variant = "default" }: PublicCatalogPr
           </div>
         </footer>
       )}
+
+      <a
+        className="hk-whatsapp-float"
+        href={`https://wa.me/${FOOTER_WHATSAPP_NUMBER}`}
+        target="_blank"
+        rel="noreferrer"
+        aria-label="Falar com a HK Lopes Store pelo WhatsApp"
+      >
+        <span className="hk-whatsapp-float__icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" role="presentation">
+            <path
+              fill="currentColor"
+              d="M19.05 4.94A9.9 9.9 0 0 0 12 2a9.93 9.93 0 0 0-8.6 14.9L2 22l5.24-1.37A9.94 9.94 0 0 0 22 11.95a9.86 9.86 0 0 0-2.95-7.01ZM12 20.06a8.05 8.05 0 0 1-4.1-1.12l-.3-.18-3.11.81.83-3.03-.2-.31A8.07 8.07 0 1 1 12 20.06Zm4.42-5.98c-.24-.12-1.4-.69-1.62-.76-.22-.08-.38-.12-.54.12-.16.24-.62.76-.77.92-.14.16-.28.18-.52.06-.24-.12-1.02-.38-1.94-1.2-.72-.64-1.2-1.42-1.34-1.66-.14-.24-.02-.37.1-.5.11-.11.24-.28.36-.42.12-.14.16-.24.24-.4.08-.16.04-.3-.02-.42-.06-.12-.54-1.3-.74-1.78-.2-.48-.4-.42-.54-.43h-.46c-.16 0-.42.06-.64.3-.22.24-.84.82-.84 1.99 0 1.17.86 2.3.98 2.46.12.16 1.68 2.56 4.07 3.59.57.24 1.01.38 1.36.48.57.18 1.08.16 1.49.1.45-.06 1.4-.57 1.6-1.12.2-.55.2-1.02.14-1.12-.06-.1-.22-.16-.46-.28Z"
+            />
+          </svg>
+        </span>
+      </a>
     </div>
   );
 }

@@ -370,6 +370,7 @@ async function getSalesHistory(sales: SaleRow[]): Promise<AdminSaleHistoryItem[]
 
     return {
       id: Number(sale.id),
+      customer_id: sale.customer_id === null ? null : Number(sale.customer_id),
       created_at: sale.created_at,
       subtotal_amount: subtotalAmount,
       discount_amount: Math.max(subtotalAmount - Number(sale.total_amount), 0),

@@ -93,6 +93,7 @@ export type AdminSaleHistoryDetailItem = {
 
 export type AdminSaleHistoryItem = {
   id: number;
+  customer_id: number | null;
   created_at: string;
   subtotal_amount: number;
   discount_amount: number;
